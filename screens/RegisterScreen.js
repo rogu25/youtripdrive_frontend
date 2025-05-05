@@ -49,7 +49,8 @@ const RegisterScreen = ({ navigation }) => {
     }
 
     try {
-      await axios.post("http://192.168.0.4:4000/api/auth/register", payload);
+      console.log("LO que contiene payload: ", payload)
+      await axios.post("http://192.168.0.8:4000/api/auth/register", payload);
       Alert.alert("Listo", "Usuario registrado correctamente");
       navigation.replace("Login");
     } catch (error) {

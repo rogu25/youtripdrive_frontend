@@ -21,7 +21,7 @@ const LoginScreen = ({ navigation }) => {
 
   const login = async () => {
     try {
-      const res = await axios.post("http://192.168.0.4:4000/api/auth/login", {
+      const res = await axios.post("http://192.168.0.8:4000/api/auth/login", {
         email,
         password,
       });

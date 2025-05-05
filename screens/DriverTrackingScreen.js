@@ -23,7 +23,7 @@ const DriverTrackingScreen = () => {
 
         try {
           await axios.post(
-            "http://192.168.0.4:4000/api/location/update",
+            "http://192.168.0.8:4000/api/location/update",
             { latitude, longitude },
             {
               headers: {

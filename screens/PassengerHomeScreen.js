@@ -32,7 +32,7 @@ const PassengerHomeScreen = ({ navigation }) => {
   useEffect(() => {
     const fetchDrivers = async () => {
       try {
-        const res = await axios.get("http://192.168.0.4:4000/api/location/available");
+        const res = await axios.get("http://192.168.0.8:4000/api/location/available");
 
         // // Simula movimiento en frontend para test
         // const simulated = res.data.map((driver) => ({
@@ -91,9 +91,36 @@ const PassengerHomeScreen = ({ navigation }) => {
     return () => clearInterval(interval);
   }, []);
 
-  const handleRequestRide = () => {
-    console.log("Solicitando viaje...");
-  };
+  const handleRequestRide = async () => {
+    try {
+        const userData = await AsyncStorage.getItem("user");
+        const user = JSON.parse(userData);
+        console.log("lo que contiene user: ", user)
+        if (!user || !region) {
+            console.log("Usuario no identificado o sin ubicación");
+            return;
+        }
+
+        const rideRequest = {
+            passengerId: user._id,
+            origin: {
+                lat: region.latitude,
+                lng: region.longitude,
+            },
+        };
+
+        const response = await axios.post("http://192.168.0.8:4000/api/rides/request", rideRequest, 
+          {
+            headers: { Authorization: `Bearer ${user.token}` },
+          }
+        );
+        console.log("Solicitud de viaje enviada:", response.data);
+        // Aquí puedes redirigir a otra pantalla o mostrar un modal de espera
+    } catch (err) {
+        console.error("Error al solicitar viaje:", err.message);
+    }
+};
+
 
   const handleLogout = async () => {
     await AsyncStorage.removeItem("user");
