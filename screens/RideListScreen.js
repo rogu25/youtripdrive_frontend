@@ -24,7 +24,7 @@ const RideListScreen = ({ navigation }) => {
                 
                 setUserData(data); // para usarlo en otras partes si querés
                 
-                const res = await axios.get("http://192.168.0.8:4000/api/rides/my", {
+                const res = await axios.get("http://192.168.0.254:4000/api/rides/my", {
                     headers: { Authorization: `Bearer ${data.token}` },
                   });
                   

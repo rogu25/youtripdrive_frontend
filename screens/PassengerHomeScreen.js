@@ -4,18 +4,20 @@ import {
   StyleSheet,
   Button,
   Dimensions,
-  Image
+  Image,
+  KeyboardAvoidingView,
+  Platform,
 } from "react-native";
 import MapView, { Marker } from "react-native-maps";
 import * as Location from "expo-location";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import axios from "axios";
+import RideChat from "../components/RideChat";
+import { socket } from "../utils/socket";
 
-// Función para calcular el ángulo de rotación entre dos puntos
 const calculateBearing = (lat1, lon1, lat2, lon2) => {
   const toRad = (deg) => deg * (Math.PI / 180);
   const toDeg = (rad) => rad * (180 / Math.PI);
-
   const dLon = toRad(lon2 - lon1);
   const y = Math.sin(dLon) * Math.cos(toRad(lat2));
   const x =
@@ -28,111 +30,166 @@ const calculateBearing = (lat1, lon1, lat2, lon2) => {
 const PassengerHomeScreen = ({ navigation }) => {
   const [region, setRegion] = useState(null);
   const [drivers, setDrivers] = useState([]);
+  const [ride, setRide] = useState(null);
+  const [driverLocation, setDriverLocation] = useState(null);
+  const [user, setUser] = useState(null);
+  const [token, setToken] = useState(null);
 
   useEffect(() => {
-    const fetchDrivers = async () => {
+    const initialize = async () => {
       try {
-        const res = await axios.get("http://192.168.0.8:4000/api/location/available");
+        const userData = await AsyncStorage.getItem("user");
+        const storedToken = await AsyncStorage.getItem("token");
 
-        // // Simula movimiento en frontend para test
-        // const simulated = res.data.map((driver) => ({
-        //   ...driver,
-        //   coordinates: {
-        //     lat: driver.coordinates.lat + (Math.random() - 0.5) * 0.0001,
-        //     lng: driver.coordinates.lng + (Math.random() - 0.5) * 0.0001
-        //   }
-        // }));
+        if (!userData || !storedToken) return;
 
-        setDrivers((prevDrivers) =>
-          res.data.map((newDriver) => {
-            const prev = prevDrivers.find((d) => d._id === newDriver._id);
-            let rotation = 0;
+        const parsedUser = JSON.parse(userData);
+        setUser(parsedUser);
+        setToken(storedToken);
 
+        await getPassengerLocation();
+        await fetchDrivers();
+        await checkActiveRide(parsedUser, storedToken);
 
-            if (prev) {
-              rotation = calculateBearing(
-                prev.coordinates.lat,
-                prev.coordinates.lng,
-                newDriver.coordinates.lat,
-                newDriver.coordinates.lng
-              );
-            }
-    
-            return {
-              ...newDriver,
-              rotation,
-            };
-          })
-        );
+        const interval = setInterval(fetchDrivers, 10000);
+        return () => clearInterval(interval);
       } catch (err) {
-        console.error("Error cargando conductores:", err.message);
+        console.error("Error inicializando:", err.message);
       }
     };
 
-    const getPassengerLocation = async () => {
-      const { status } = await Location.requestForegroundPermissionsAsync();
-      if (status !== "granted") {
-        console.log("Permiso de ubicación denegado");
-        return;
-      }
-
-      const loc = await Location.getCurrentPositionAsync({});
-      setRegion({
-        latitude: loc.coords.latitude,
-        longitude: loc.coords.longitude,
-        latitudeDelta: 0.01,
-        longitudeDelta: 0.01,
-      });
-    };
-
-    getPassengerLocation();
-    fetchDrivers();
-    const interval = setInterval(fetchDrivers, 10000);
-    return () => clearInterval(interval);
+    initialize();
   }, []);
 
-  const handleRequestRide = async () => {
-    try {
-        const userData = await AsyncStorage.getItem("user");
-        const user = JSON.parse(userData);
-        console.log("lo que contiene user: ", user)
-        if (!user || !region) {
-            console.log("Usuario no identificado o sin ubicación");
-            return;
-        }
-
-        const rideRequest = {
-            passengerId: user._id,
-            origin: {
-                lat: region.latitude,
-                lng: region.longitude,
-            },
-        };
-
-        const response = await axios.post("http://192.168.0.8:4000/api/rides/request", rideRequest, 
-          {
-            headers: { Authorization: `Bearer ${user.token}` },
-          }
-        );
-        console.log("Solicitud de viaje enviada:", response.data);
-        // Aquí puedes redirigir a otra pantalla o mostrar un modal de espera
-    } catch (err) {
-        console.error("Error al solicitar viaje:", err.message);
+  const getPassengerLocation = async () => {
+    const { status } = await Location.requestForegroundPermissionsAsync();
+    if (status !== "granted") {
+      console.log("Permiso de ubicación denegado");
+      return;
     }
-};
 
+    const loc = await Location.getCurrentPositionAsync({});
+    setRegion({
+      latitude: loc.coords.latitude,
+      longitude: loc.coords.longitude,
+      latitudeDelta: 0.01,
+      longitudeDelta: 0.01,
+    });
+  };
+
+  const fetchDrivers = async () => {
+    try {
+      const res = await axios.get("http://192.168.0.254:4000/api/location/available");
+
+      setDrivers((prevDrivers) =>
+        res.data.map((newDriver) => {
+          const prev = prevDrivers.find((d) => d._id === newDriver._id);
+          let rotation = 0;
+          if (prev) {
+            rotation = calculateBearing(
+              prev.coordinates.lat,
+              prev.coordinates.lng,
+              newDriver.coordinates.lat,
+              newDriver.coordinates.lng
+            );
+          }
+          return { ...newDriver, rotation };
+        })
+      );
+    } catch (err) {
+      console.error("Error cargando conductores:", err.message);
+    }
+  };
+
+  const checkActiveRide = async (parsedUser, token) => {
+    if (!token || !parsedUser) return;
+    console.log("TOKEN: ", token)
+    try {
+      const res = await axios.get("http://192.168.0.254:4000/api/rides/active", {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+
+      setRide(res.data);
+    } catch (err) {
+      if (err.response?.status !== 404) {
+        console.error("Error al verificar viaje activo:", err.message);
+      }
+    }
+  };
+
+  const handleRequestRide = async () => {
+    if (!user || !token || !region) return;
+
+    try {
+      const rideRequest = {
+        passengerId: user._id,
+        origin: {
+          lat: region.latitude,
+          lng: region.longitude,
+        },
+      };
+
+      const response = await axios.post(
+        "http://192.168.0.254:4000/api/rides/request",
+        rideRequest,
+        {
+          headers: { Authorization: `Bearer ${token}` },
+        }
+      );
+
+      console.log("Solicitud de viaje enviada:", response.data);
+      setRide(response.data);
+    } catch (err) {
+      console.error("Error al solicitar viaje:", err.message);
+    }
+  };
 
   const handleLogout = async () => {
     await AsyncStorage.removeItem("user");
+    await AsyncStorage.removeItem("token");
     navigation.replace("Login");
   };
+
+  useEffect(() => {
+    socket.on("aceptado", async (data) => {
+      console.log("¡Viaje aceptado!", data);
+      try {
+        const res = await axios.get("http://192.168.0.254:4000/api/rides/active", {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        setRide(res.data);
+        if (res.data.driverLocation) {
+          setDriverLocation(res.data.driverLocation.coordinates);
+        }
+      } catch (err) {
+        console.error("Error al obtener viaje activo:", err.message);
+      }
+    });
+
+    return () => socket.off("aceptado");
+  }, [token]);
+
+  useEffect(() => {
+    if (!ride || !ride.driver?._id) return;
+
+    socket.on("ubicacion_conductor", (data) => {
+      if (data.driverId === ride.driver._id) {
+        setDriverLocation(data.coordinates);
+      }
+    });
+
+    return () => socket.off("ubicacion_conductor");
+  }, [ride]);
 
   if (!region) return null;
 
   return (
-    <View style={styles.container}>
+    <KeyboardAvoidingView
+      style={styles.container}
+      behavior={Platform.OS === "ios" ? "padding" : undefined}
+      keyboardVerticalOffset={Platform.OS === "ios" ? 80 : 0}
+    >
       <MapView style={styles.map} initialRegion={region}>
-        {/* Marcadores de conductores */}
         {drivers.map((driver) => (
           <Marker
             key={driver._id}
@@ -155,7 +212,6 @@ const PassengerHomeScreen = ({ navigation }) => {
           </Marker>
         ))}
 
-        {/* Marcador del pasajero */}
         <Marker
           coordinate={{
             latitude: region.latitude,
@@ -167,10 +223,21 @@ const PassengerHomeScreen = ({ navigation }) => {
       </MapView>
 
       <View style={styles.buttonContainer}>
+        <Button
+          title="Ir al Chat"
+          onPress={() => {
+            if (ride && user) {
+              navigation.navigate("RideChat", {
+                rideId: ride._id,
+                userId: user._id,
+              });
+            }
+          }}
+        />
         <Button title="Solicitar viaje" onPress={handleRequestRide} />
         <Button title="Cerrar sesión" onPress={handleLogout} />
       </View>
-    </View>
+    </KeyboardAvoidingView>
   );
 };
 

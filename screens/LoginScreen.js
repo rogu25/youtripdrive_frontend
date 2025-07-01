@@ -21,11 +21,10 @@ const LoginScreen = ({ navigation }) => {
 
   const login = async () => {
     try {
-      const res = await axios.post("http://192.168.0.8:4000/api/auth/login", {
+      const res = await axios.post("http://192.168.0.254:4000/api/auth/login", {
         email,
         password,
       });
-
 
       // Validamos la estructura
       if (!res.data || !res.data.user) {
@@ -34,29 +33,26 @@ const LoginScreen = ({ navigation }) => {
       }
 
       // Guardamos el usuario y el token si está todo ok
-      await AsyncStorage.setItem(
-        "user",
-        JSON.stringify({
-          token: res.data.token,
-          user: res.data.user,
-        })
-      );
+      // console.log("se elimino el token: ", resultado_token)
+      
+      // console.log("se guardo el token: ", res.data.token)
+      await AsyncStorage.setItem("token", res.data.token);
+      await AsyncStorage.setItem("user", JSON.stringify(res.data.user));
 
       // Redirección basada en el rol
       if (res.data.user.role === "pasajero") {
         navigation.replace("PassengerHome"); // esta pantalla la tienes que registrar en tu navigator
       } else if (res.data.user.role === "conductor") {
-        navigation.replace("DriverHome"); // (cuando esté lista)
+        // navigation.replace("DriverHomeScreen"); // (cuando esté lista)
+        navigation.navigate("RideInProgress", { ride: res.data });
       }
 
       // navigation.reset({ index: 0, routes: [{ name: "Rides" }] });
-
     } catch (err) {
       console.error(err);
       Alert.alert("Error", "Credenciales inválidas o servidor no disponible");
     }
   };
-
 
   return (
     <KeyboardAvoidingView
