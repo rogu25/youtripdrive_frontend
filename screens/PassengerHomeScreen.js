@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { use, useEffect, useState } from "react";
 import {
   View,
   StyleSheet,
@@ -79,7 +79,9 @@ const PassengerHomeScreen = ({ navigation }) => {
 
   const fetchDrivers = async () => {
     try {
-      const res = await axios.get("http://192.168.0.254:4000/api/location/available");
+      const res = await axios.get(
+        "http://192.168.0.254:4000/api/location/available"
+      );
 
       setDrivers((prevDrivers) =>
         res.data.map((newDriver) => {
@@ -103,11 +105,14 @@ const PassengerHomeScreen = ({ navigation }) => {
 
   const checkActiveRide = async (parsedUser, token) => {
     if (!token || !parsedUser) return;
-    console.log("TOKEN: ", token)
+
     try {
-      const res = await axios.get("http://192.168.0.254:4000/api/rides/active", {
-        headers: { Authorization: `Bearer ${token}` },
-      });
+      const res = await axios.get(
+        "http://192.168.0.254:4000/api/rides/active",
+        {
+          headers: { Authorization: `Bearer ${token}` },
+        }
+      );
 
       setRide(res.data);
     } catch (err) {
@@ -118,11 +123,16 @@ const PassengerHomeScreen = ({ navigation }) => {
   };
 
   const handleRequestRide = async () => {
-    if (!user || !token || !region) return;
-
     try {
+      const userData = await AsyncStorage.getItem("user");
+      const token = await AsyncStorage.getItem("token");
+      const parsedUser = JSON.parse(userData);
+      setUser(parsedUser);
+
+      if (!parsedUser || !region) return;
+
       const rideRequest = {
-        passengerId: user._id,
+        passengerId: parsedUser.id,
         origin: {
           lat: region.latitude,
           lng: region.longitude,
@@ -138,9 +148,14 @@ const PassengerHomeScreen = ({ navigation }) => {
       );
 
       console.log("Solicitud de viaje enviada:", response.data);
-      setRide(response.data);
+      setRide(response.data); // Actualizamos el estado ride si es exitoso
     } catch (err) {
-      console.error("Error al solicitar viaje:", err.message);
+      if (err.response?.status === 409) {
+        alert("Ya tienes un viaje pendiente o en curso.");
+      } else {
+        console.error("Error al solicitar viaje:", err.message);
+        alert("Error al solicitar viaje. Intenta nuevamente.");
+      }
     }
   };
 
@@ -154,9 +169,12 @@ const PassengerHomeScreen = ({ navigation }) => {
     socket.on("aceptado", async (data) => {
       console.log("¡Viaje aceptado!", data);
       try {
-        const res = await axios.get("http://192.168.0.254:4000/api/rides/active", {
-          headers: { Authorization: `Bearer ${token}` },
-        });
+        const res = await axios.get(
+          "http://192.168.0.254:4000/api/rides/active",
+          {
+            headers: { Authorization: `Bearer ${token}` },
+          }
+        );
         setRide(res.data);
         if (res.data.driverLocation) {
           setDriverLocation(res.data.driverLocation.coordinates);
@@ -234,7 +252,15 @@ const PassengerHomeScreen = ({ navigation }) => {
             }
           }}
         />
-        <Button title="Solicitar viaje" onPress={handleRequestRide} />
+        {!ride ? (
+          <Button title="Solicitar viaje" onPress={handleRequestRide} />
+        ) : (
+          <Button
+            title="Ya tienes un viaje activo"
+            disabled={true}
+            color="gray"
+          />
+        )}
         <Button title="Cerrar sesión" onPress={handleLogout} />
       </View>
     </KeyboardAvoidingView>
