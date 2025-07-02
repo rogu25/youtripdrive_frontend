@@ -53,6 +53,7 @@ const PassengerHomeScreen = ({ navigation }) => {
         },
       };
 
+      console.log("ID del pasajero: ", parsedUser)
       const response = await axios.post(`${API_URL}/api/rides/request`, rideRequest, {
         headers: { Authorization: `Bearer ${token}` },
       });
@@ -85,7 +86,7 @@ const PassengerHomeScreen = ({ navigation }) => {
         const res = await axios.get(`${API_URL}/api/rides/active`, {
           headers: { Authorization: `Bearer ${token}` },
         });
-
+        console.log("detectar los datos: ", res.data)
         setRide(res.data);
         setRideStatus(res.data.status);
       } catch (err) {
@@ -249,7 +250,7 @@ const PassengerHomeScreen = ({ navigation }) => {
             }
           />
         )}
-        {!ride && <Button title="Solicitar viaje" onPress={handleRequestRide} />}
+        {ride.status == "buscando" && <Button title="Solicitar viaje" onPress={handleRequestRide} />}
         <Button title="Cerrar sesión" onPress={handleLogout} />
       </View>
     </KeyboardAvoidingView>

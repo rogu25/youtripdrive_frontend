@@ -22,7 +22,6 @@ const DriverRideInProgress = ({ route, navigation }) => {
     };
 
     getLocation();
-
     const interval = setInterval(getLocation, 5000);
     return () => clearInterval(interval);
   }, []);
@@ -30,9 +29,6 @@ const DriverRideInProgress = ({ route, navigation }) => {
   const handleStartRide = async () => {
     try {
       const token = await AsyncStorage.getItem("token");
-
-      console.log("id: ", ride._id)
-
       await axios.put(
         `http://192.168.0.254:4000/api/rides/status/${ride._id}`,
         { status: "en_curso" },
@@ -40,12 +36,10 @@ const DriverRideInProgress = ({ route, navigation }) => {
           headers: { Authorization: `Bearer ${token}` },
         }
       );
-
-      Alert.alert("Viaje iniciado");
-      // podrías navegar a otra pantalla si quieres
+      Alert.alert("Éxito", "Viaje iniciado correctamente");
     } catch (err) {
-      console.error("Error al iniciar el viaje:", err.message);
-      Alert.alert("Error", "No se pudo iniciar el viaje");
+      console.error("Error al iniciar el viaje:", err);
+      Alert.alert("Error", err.response?.data?.message || "No se pudo iniciar el viaje");
     }
   };
 
@@ -61,14 +55,11 @@ const DriverRideInProgress = ({ route, navigation }) => {
             longitudeDelta: 0.01,
           }}
         >
-          {/* Conductor */}
           <Marker
             coordinate={driverLocation}
             title="Tú (conductor)"
             pinColor="blue"
           />
-
-          {/* Origen del pasajero */}
           {ride.origin && (
             <Marker
               coordinate={{
@@ -83,7 +74,6 @@ const DriverRideInProgress = ({ route, navigation }) => {
       ) : (
         <Text>Obteniendo tu ubicación...</Text>
       )}
-
       <View style={styles.buttonContainer}>
         <Button title="Iniciar viaje" onPress={handleStartRide} />
       </View>
