@@ -1,4 +1,3 @@
-// components/RideChat.js
 import React, { useEffect, useState, useRef } from "react";
 import {
   View,
@@ -9,22 +8,25 @@ import {
   StyleSheet,
   KeyboardAvoidingView,
   Platform,
+  SafeAreaView,
 } from "react-native";
 import io from "socket.io-client";
 import axios from "axios";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useRoute } from "@react-navigation/native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 const API_URL = "http://192.168.0.254:4000";
 
 const RideChat = () => {
   const route = useRoute();
-  const { rideId, userId } = route.params; // ← se obtiene desde navegación
+  const { rideId, userId } = route.params;
 
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState("");
   const socketRef = useRef();
   const [typingUser, setTypingUser] = useState(null);
+  const insets = useSafeAreaInsets(); // <-- para márgenes seguros
 
   useEffect(() => {
     socketRef.current = io(API_URL);
@@ -76,51 +78,71 @@ const RideChat = () => {
   };
 
   return (
-    <KeyboardAvoidingView
-      behavior={Platform.OS === "ios" ? "padding" : "height"}
-      style={styles.container}
-      keyboardVerticalOffset={80}
-    >
-      <FlatList
-        data={messages}
-        keyExtractor={(item, index) => index.toString()}
-        contentContainerStyle={{ paddingBottom: 10 }}
-        renderItem={({ item }) => (
-          <View
-            style={
-              item.sender._id === userId ? styles.myMsg : styles.otherMsg
-            }
-          >
-            <Text style={styles.sender}>
-              {item.sender.name || "Anon"}:
+    <SafeAreaView style={styles.safe}>
+      <KeyboardAvoidingView
+        behavior={Platform.OS === "ios" ? "padding" : "height"}
+        style={styles.container}
+        keyboardVerticalOffset={Platform.OS === "ios" ? 80 : 0}
+      >
+        <View style={[styles.inner, { paddingBottom: insets.bottom || 12 }]}>
+          <FlatList
+            data={messages}
+            keyExtractor={(item, index) => index.toString()}
+            contentContainerStyle={{ paddingBottom: 10 }}
+            renderItem={({ item }) => (
+              <View
+                style={
+                  item.sender._id === userId ? styles.myMsg : styles.otherMsg
+                }
+              >
+                <Text style={styles.sender}>
+                  {item.sender.name || "Anon"}:
+                </Text>
+                <Text>{item.content}</Text>
+              </View>
+            )}
+          />
+
+          {typingUser && (
+            <Text style={styles.typingText}>
+              {typingUser} está escribiendo...
             </Text>
-            <Text>{item.content}</Text>
+          )}
+
+          <View style={styles.inputContainer}>
+            <TextInput
+              value={input}
+              onChangeText={(text) => {
+                setInput(text);
+                socketRef.current.emit("typing", {
+                  rideId,
+                  senderId: userId,
+                });
+              }}
+              placeholder="Escribe un mensaje..."
+              style={styles.input}
+            />
+            <Button title="Enviar" onPress={sendMessage} />
           </View>
-        )}
-      />
-
-      {typingUser && (
-        <Text style={styles.typingText}>{typingUser} está escribiendo...</Text>
-      )}
-
-      <View style={styles.inputContainer}>
-        <TextInput
-          value={input}
-          onChangeText={(text) => {
-            setInput(text);
-            socketRef.current.emit("typing", { rideId, senderId: userId });
-          }}
-          placeholder="Escribe un mensaje..."
-          style={styles.input}
-        />
-        <Button title="Enviar" onPress={sendMessage} />
-      </View>
-    </KeyboardAvoidingView>
+        </View>
+      </KeyboardAvoidingView>
+    </SafeAreaView>
   );
 };
 
 const styles = StyleSheet.create({
-  container: { flex: 1, padding: 10, backgroundColor: "#fff" },
+  safe: {
+    flex: 1,
+    backgroundColor: "#fff",
+  },
+  container: {
+    flex: 1,
+  },
+  inner: {
+    flex: 1,
+    padding: 10,
+    justifyContent: "space-between",
+  },
   myMsg: {
     alignSelf: "flex-end",
     backgroundColor: "#DCF8C6",

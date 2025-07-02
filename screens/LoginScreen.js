@@ -44,7 +44,7 @@ const LoginScreen = ({ navigation }) => {
         navigation.replace("PassengerHome"); // esta pantalla la tienes que registrar en tu navigator
       } else if (res.data.user.role === "conductor") {
         // navigation.replace("DriverHomeScreen"); // (cuando esté lista)
-        navigation.navigate("RideInProgress", { ride: res.data });
+        navigation.navigate("DriverRideInProgress", { ride: res.data });
       }
 
       // navigation.reset({ index: 0, routes: [{ name: "Rides" }] });

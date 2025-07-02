@@ -1,30 +1,30 @@
+// RideInProgressScreen.js
 import React, { useEffect, useState } from "react";
-import { View, StyleSheet } from "react-native";
-import MapView, { Marker, Polyline } from "react-native-maps";
+import {
+  View,
+  StyleSheet,
+  Text,
+  Button,
+  Dimensions,
+  Alert,
+} from "react-native";
+import MapView, { Marker } from "react-native-maps";
+import * as Location from "expo-location";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import axios from "axios";
 
-const RideInProgressScreen = ({ route }) => {
+const RideInProgressScreen = ({ route, navigation }) => {
   const { ride } = route.params;
   const [driverLocation, setDriverLocation] = useState(null);
-
+  const [user, setUser] = useState(null);
   const origin = ride.origin;
   const destination = ride.destination;
-  const driverId = ride._id; // depende de cómo lo tengas
 
-  const fetchDriverLocation = async () => {
-    try {
-      const res = await axios.get(
-        `http://192.168.0.254:4000/api/location/${driverId}`
-      );
-      setDriverLocation(res.data.coords);
-    } catch (err) {
-      console.error("Error al obtener ubicación del conductor:", err.message);
-    }
-  };
-
-  // Polling para obtener la ubicación del conductor cada 5 segundos
   useEffect(() => {
-    let intervalId;
+    const fetchUser = async () => {
+      const userData = await AsyncStorage.getItem("user");
+      if (userData) setUser(JSON.parse(userData));
+    };
 
     const startTracking = async () => {
       const { status } = await Location.requestForegroundPermissionsAsync();
@@ -35,9 +35,9 @@ const RideInProgressScreen = ({ route }) => {
 
       const token = await AsyncStorage.getItem("token");
 
-      intervalId = setInterval(async () => {
+      const intervalId = setInterval(async () => {
         const location = await Location.getCurrentPositionAsync({});
-        setCurrentLocation(location.coords);
+        setDriverLocation(location.coords);
 
         try {
           await axios.post(
@@ -53,13 +53,38 @@ const RideInProgressScreen = ({ route }) => {
         } catch (err) {
           console.error("Error actualizando ubicación:", err.message);
         }
-      }, 10000); // cada 10 segundos
+      }, 5000);
+
+      return () => clearInterval(intervalId);
     };
 
-    startTracking();
+    fetchUser();
+    const cleanup = startTracking();
 
-    return () => clearInterval(intervalId); // limpiar cuando se desmonte
+    return () => {
+      if (typeof cleanup === "function") cleanup();
+    };
   }, []);
+
+  const handleFinishRide = async () => {
+    try {
+      const token = await AsyncStorage.getItem("token");
+
+      await axios.patch(
+        `http://192.168.0.254:4000/api/rides/status/${ride._id}`,
+        { status: "finalizado" },
+        {
+          headers: { Authorization: `Bearer ${token}` },
+        }
+      );
+
+      Alert.alert("Viaje finalizado");
+      navigation.navigate("PassengerHome"); // o "DriverHome" según el rol
+    } catch (err) {
+      console.error("Error finalizando viaje:", err.message);
+      Alert.alert("Error", "No se pudo finalizar el viaje");
+    }
+  };
 
   return (
     <View style={styles.container}>
@@ -96,13 +121,52 @@ const RideInProgressScreen = ({ route }) => {
           />
         )}
       </MapView>
+
+      <View style={styles.bottomPanel}>
+        <Text style={styles.infoText}>
+          {user?.role === "conductor"
+            ? "Pasajero: " + ride.passenger?.name
+            : "Conductor: " + ride.driver?.name}
+        </Text>
+        <Text style={styles.infoText}>
+          Estado: {ride.status?.toUpperCase()}
+        </Text>
+        {ride.destination && (
+          <Text style={styles.infoText}>
+            Destino: {ride.destination.address || "Ubicación establecida"}
+          </Text>
+        )}
+        <Button title="Finalizar Viaje" onPress={handleFinishRide} />
+      </View>
     </View>
   );
 };
 
 const styles = StyleSheet.create({
   container: { flex: 1 },
-  map: { flex: 1 },
+  map: {
+    flex: 1,
+    width: Dimensions.get("window").width,
+    height: Dimensions.get("window").height,
+  },
+  bottomPanel: {
+    position: "absolute",
+    bottom: 30,
+    left: 20,
+    right: 20,
+    backgroundColor: "white",
+    padding: 15,
+    borderRadius: 12,
+    elevation: 6,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.2,
+    shadowRadius: 4,
+  },
+  infoText: {
+    fontSize: 14,
+    marginBottom: 8,
+  },
 });
 
 export default RideInProgressScreen;
