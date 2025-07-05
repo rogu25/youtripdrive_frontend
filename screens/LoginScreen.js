@@ -15,13 +15,13 @@ import {
 import axios from "axios";
 import { LinearGradient } from "expo-linear-gradient";
 import { useAuth } from "../context/AuthContext";
-import { API_BASE_URL } from "../utils/config"; // <-- Asegúrate de que esta ruta sea correcta: era ../config, ahora es ../utils/config.
+import { API_BASE_URL } from "../utils/config";
 
 const LoginScreen = ({ navigation }) => {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
-  const { signIn } = useAuth();
+  const { login } = useAuth(); // Correcto: desestructuramos 'login'
 
   const handleLogin = async () => {
     if (!email.trim() || !password.trim()) {
@@ -39,25 +39,40 @@ const LoginScreen = ({ navigation }) => {
       if (!res.data || !res.data.token || !res.data.user) {
         Alert.alert(
           "Error",
-          "Respuesta de autenticación inválida del servidor."
+          "Respuesta de autenticación inválida del servidor. Faltan datos esenciales."
         );
         return;
       }
 
-      const loginSuccess = await signIn(res.data.token, res.data.user);
+      // *** CORRECCIÓN CLAVE AQUÍ: Combina el token y los datos del usuario en un solo objeto ***
+      const userDataToSave = {
+        ...res.data.user, // Desestructura los datos del usuario (_id, name, email, role, etc.)
+        token: res.data.token, // Añade el token al mismo objeto
+      };
+      
+      // Llamada a la función login del contexto con un único objeto
+      await login(userDataToSave); 
 
-      if (loginSuccess) {
-        if (res.data.user.role === "pasajero") {
-          navigation.replace("PassengerHomeScreen");
-        } else if (res.data.user.role === "conductor") {
-          navigation.replace("DriverHome");
-        }
-      } else {
-        Alert.alert(
-          "Error",
-          "No se pudo guardar la sesión localmente. Intenta de nuevo."
-        );
+      // ************** IMPORTANTE **************
+      // Una vez que `login(userDataToSave)` se llama, el estado en `AuthContext`
+      // (`user` y `isAuthenticated`) se actualiza.
+      // Tu `App.js` con el `RootNavigator` (que usa `useAuth()`)
+      // detectará este cambio y *automáticamente* navegará a la pantalla correcta
+      // (`PassengerHome` o `DriverHome`) según el rol del usuario.
+      // Por lo tanto, no necesitas las siguientes líneas de `navigation.replace`.
+      // Si las mantienes, podrías tener un parpadeo o una navegación redundante.
+      // Te recomiendo eliminarlas o comentarlas si el flujo automático funciona.
+      /*
+      if (res.data.user.role === "pasajero") {
+        navigation.replace("PassengerHomeScreen");
+      } else if (res.data.user.role === "conductor") {
+        navigation.replace("DriverHome");
       }
+      */
+      // Si aún quieres forzar una navegación para refrescar el stack,
+      // puedes navegar a la raíz que re-evalúa el RootNavigator:
+      // navigation.replace("Root"); 
+
     } catch (err) {
       console.error("Error de login:", err.response?.data || err.message);
       let errorMessage =
@@ -114,7 +129,6 @@ const LoginScreen = ({ navigation }) => {
           />
 
           <TouchableOpacity onPress={handleLogin} disabled={loading}>
-            {/* ELIMINADO: el espacio en blanco que causaba el error */}
             <LinearGradient
               colors={["#00f0ff", "#0cf574"]}
               start={[0, 0]}
@@ -133,7 +147,6 @@ const LoginScreen = ({ navigation }) => {
             onPress={() => navigation.navigate("Register")}
             disabled={loading}
           >
-            {/* Asegúrate de que no haya texto directo aquí tampoco, solo el componente Text */}
             <Text style={styles.link}>¿No tenés cuenta? Registrate</Text>
           </TouchableOpacity>
         </View>

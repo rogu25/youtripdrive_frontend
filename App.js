@@ -7,10 +7,10 @@ import { ActivityIndicator, View, StyleSheet } from "react-native";
 import { StatusBar } from "expo-status-bar";
 
 // Importaciones de Contexto
-import { AuthProvider } from "./context/AuthContext";
+import { AuthProvider, useAuth } from "./context/AuthContext";
 import { SocketProvider } from "./context/SocketContext";
 
-// Screens
+// Pantallas
 import LoginScreen from "./screens/LoginScreen";
 import RegisterScreen from "./screens/RegisterScreen";
 import PassengerHomeScreen from "./screens/PassengerHomeScreen";
@@ -21,63 +21,17 @@ import PassengerRideInProgress from "./screens/PassengerRideInProgress";
 import WaitingForDriverScreen from "./screens/WaitingForDriverScreen";
 import AvailableRidesScreen from "./screens/AvailableRidesScreen";
 import RideInProgressDriverScreen from "./screens/RideInProgressDriverScreen";
-import RideChatScreen from "./screens/RideChatScreen"; // Asegúrate de que esta sea la pantalla de chat correcta
-
+import RideChatScreen from "./screens/RideChatScreen";
 
 const Stack = createNativeStackNavigator();
 
-SplashScreen.preventAutoHideAsync(); // Evita que el splash desaparezca automáticamente
+SplashScreen.preventAutoHideAsync();
 
-export default function App() {
-  const [initialRoute, setInitialRoute] = useState("Splash");
-  const [appIsReady, setAppIsReady] = useState(false);
-  const [isAuthenticated, setIsAuthenticated] = useState(false);
-  const [userRole, setUserRole] = useState(null);
+// Componente que decide la ruta inicial basada en el estado de autenticación y rol
+const RootNavigator = () => {
+  const { user, isAuthenticated, loading } = useAuth();
 
-  // Función para preparar los assets y la lógica de inicio
-  const prepare = useCallback(async () => {
-    try {
-      // Simula un retraso para ver el splash screen
-      await new Promise((resolve) => setTimeout(resolve, 2000));
-
-      // Lógica de carga del usuario y determinación de la ruta inicial
-      const storedUser = await AsyncStorage.getItem("user");
-      if (storedUser) {
-        const userData = JSON.parse(storedUser);
-        setIsAuthenticated(true);
-        setUserRole(userData.role);
-        // Determina la ruta inicial basada en el rol si ya está autenticado
-        if (userData.role === 'passenger') {
-            setInitialRoute("PassengerHome");
-        } else if (userData.role === 'driver') {
-            setInitialRoute("DriverHome");
-        } else {
-            setInitialRoute("Login"); // Fallback si el rol no es reconocido
-        }
-      } else {
-        setIsAuthenticated(false);
-        setUserRole(null);
-        setInitialRoute("Login"); // Si no hay usuario, ir a Login
-      }
-    } catch (e) {
-      console.warn(e);
-    } finally {
-      setAppIsReady(true);
-    }
-  }, []);
-
-  useEffect(() => {
-    prepare();
-  }, [prepare]);
-
-  const onLayoutRootView = useCallback(async () => {
-    if (appIsReady) {
-      await SplashScreen.hideAsync();
-    }
-  }, [appIsReady]);
-
-  // Si la aplicación aún no está lista, muestra un indicador de carga
-  if (!appIsReady) {
+  if (loading) {
     return (
       <View style={styles.loadingContainer}>
         <ActivityIndicator size="large" color="#00f0ff" />
@@ -86,37 +40,92 @@ export default function App() {
     );
   }
 
-  // Contenedor principal de la aplicación con la barra de estado configurada
+  return (
+    <Stack.Navigator screenOptions={{ headerShown: false }}>
+      {isAuthenticated ? (
+        user?.role === "conductor" ? (
+          <Stack.Screen name="DriverHome" component={DriverHomeScreen} />
+        ) : (
+          <Stack.Screen name="PassengerHome" component={PassengerHomeScreen} />
+        )
+      ) : (
+        <>
+          <Stack.Screen name="Login" component={LoginScreen} />
+          <Stack.Screen name="Register" component={RegisterScreen} />
+          {/* Puedes añadir rutas como "olvidé contraseña" aquí si las tienes */}
+        </>
+      )}
+      {/*
+        Estas rutas están aquí para que el Stack.Navigator las conozca
+        y se pueda navegar a ellas desde cualquier lugar dentro de este stack.
+      */}
+      <Stack.Screen
+        name="PassengerHomeScreen"
+        component={PassengerHomeScreen}
+      />
+      <Stack.Screen
+        name="WaitingForDriverScreen"
+        component={WaitingForDriverScreen}
+      />
+      <Stack.Screen
+        name="PassengerRideInProgress"
+        component={PassengerRideInProgress}
+      />
+      <Stack.Screen
+        name="AvailableRidesScreen"
+        component={AvailableRidesScreen}
+      />
+      <Stack.Screen
+        name="RideInProgressDriverScreen"
+        component={RideInProgressDriverScreen}
+      />
+      <Stack.Screen name="RideChat" component={RideChatScreen} />
+      <Stack.Screen name="Rides" component={RideListScreen} />
+    </Stack.Navigator>
+  );
+};
+
+export default function App() {
+  const [appIsReady, setAppIsReady] = useState(false);
+
+  const prepareApp = useCallback(async () => {
+    try {
+      await new Promise((resolve) => setTimeout(resolve, 2000));
+    } catch (e) {
+      console.warn(e);
+    } finally {
+      setAppIsReady(true);
+    }
+  }, []);
+
+  useEffect(() => {
+    prepareApp();
+  }, [prepareApp]);
+
+  const onLayoutRootView = useCallback(async () => {
+    if (appIsReady) {
+      await SplashScreen.hideAsync();
+    }
+  }, [appIsReady]);
+
+  if (!appIsReady) {
+    return (
+      <View style={styles.container} onLayout={onLayoutRootView}>
+        <StatusBar style="light" />
+      </View>
+    );
+  }
+
   return (
     <View style={styles.container} onLayout={onLayoutRootView}>
-      {/* AuthProvider y SocketProvider envolverán NavigationContainer para acceso global */}
-      <AuthProvider
-        isAuthenticated={isAuthenticated}
-        userRole={userRole}
-        setIsAuthenticated={setIsAuthenticated}
-        setUserRole={setUserRole}
-      >
+      <AuthProvider>
         <SocketProvider>
-          {/* ELIMINADO: El espacio en blanco que causaba el error */}
           <NavigationContainer>
-            <Stack.Navigator
-              initialRouteName={initialRoute}
-              screenOptions={{ headerShown: false }}
-            >
+            {/* Asegúrate de que no haya ningún espacio en blanco o comentario no JSX aquí */}
+            <Stack.Navigator screenOptions={{ headerShown: false }}>
               <Stack.Screen name="Splash" component={SplashScreenAnimated} />
-              {/* Autenticación */}
-              <Stack.Screen name="Login" component={LoginScreen} />
-              <Stack.Screen name="Register" component={RegisterScreen} />
-              {/* Home Screens */}
-              <Stack.Screen name="PassengerHomeScreen" component={PassengerHomeScreen} />
-              <Stack.Screen name="DriverHome" component={DriverHomeScreen} />
-              {/* Ride Screens */}
-              <Stack.Screen name="Rides" component={RideListScreen} />
-              <Stack.Screen name="PassengerRideInProgress" component={PassengerRideInProgress} />
-              <Stack.Screen name="WaitingForDriverScreen" component={WaitingForDriverScreen} />
-              <Stack.Screen name="AvailableRidesScreen" component={AvailableRidesScreen} />
-              <Stack.Screen name="RideInProgressDriverScreen" component={RideInProgressDriverScreen} />
-              <Stack.Screen name="RideChat" component={RideChatScreen} />
+              {/* La pantalla 'Root' usará el componente RootNavigator para manejar la navegación condicional */}
+              <Stack.Screen name="Root" component={RootNavigator} />
             </Stack.Navigator>
           </NavigationContainer>
         </SocketProvider>

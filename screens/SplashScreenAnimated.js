@@ -9,15 +9,23 @@ const SplashScreenAnimated = ({ navigation }) => {
   const rotateAnim = useRef(new Animated.Value(0)).current;
 
   const playSound = async () => {
-    const { sound } = await Audio.Sound.createAsync(
-      require("../assets/intro.mp3")
-    );
-    await sound.playAsync();
+    try {
+      const { sound } = await Audio.Sound.createAsync(
+        require("../assets/intro.mp3")
+      );
+      await sound.playAsync();
+      // Opcional: Asegúrate de descargar el sonido para liberar memoria si es necesario
+      // sound.unloadAsync(); 
+    } catch (error) {
+      console.warn("Error al reproducir el sonido de intro:", error);
+      // No detengas la aplicación si el sonido falla
+    }
   };
 
   useEffect(() => {
     playSound();
 
+    // Inicia tus animaciones
     Animated.parallel([
       Animated.timing(fadeAnim, {
         toValue: 1,
@@ -37,13 +45,18 @@ const SplashScreenAnimated = ({ navigation }) => {
       }),
     ]).start();
 
+    // Después de que las animaciones y el sonido hayan tenido tiempo de ejecutarse,
+    // oculta el splash nativo y navega a la pantalla 'Root'.
+    // RootNavigator se encargará de decidir la ruta final (Login, PassengerHome, DriverHome).
     const timeout = setTimeout(async () => {
-      await SplashScreen.hideAsync(); // oculta la splash nativa
-      navigation.replace("Login"); // o "Rides" si ya hay usuario
-    }, 2800);
+      await SplashScreen.hideAsync(); // oculta la splash nativa de Expo
+      // *** CAMBIO CRÍTICO AQUÍ ***
+      // Siempre navega a 'Root'. RootNavigator contendrá la lógica condicional.
+      navigation.replace("Root"); 
+    }, 2800); // Ajusta la duración total si es necesario para que coincida con tus animaciones
 
-    return () => clearTimeout(timeout);
-  }, []);
+    return () => clearTimeout(timeout); // Limpia el temporizador al desmontar
+  }, [navigation]); // Añadimos navigation a las dependencias del useEffect
 
   const rotateInterpolate = rotateAnim.interpolate({
     inputRange: [0, 1],
@@ -53,7 +66,7 @@ const SplashScreenAnimated = ({ navigation }) => {
   return (
     <View style={styles.container}>
       <Animated.Image
-        source={require("../assets/logo.jpg")}
+        source={require("../assets/logo.jpg")} // Asegúrate de que esta ruta sea correcta
         style={[
           styles.logo,
           {
