@@ -10,47 +10,76 @@ import {
   KeyboardAvoidingView,
   Platform,
   ScrollView,
+  ActivityIndicator,
 } from "react-native";
-import AsyncStorage from "@react-native-async-storage/async-storage";
 import axios from "axios";
 import { LinearGradient } from "expo-linear-gradient";
+import { useAuth } from "../context/AuthContext";
+import { API_BASE_URL } from "../utils/config"; // <-- Asegúrate de que esta ruta sea correcta: era ../config, ahora es ../utils/config.
 
 const LoginScreen = ({ navigation }) => {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [loading, setLoading] = useState(false);
+  const { signIn } = useAuth();
 
-  const login = async () => {
+  const handleLogin = async () => {
+    if (!email.trim() || !password.trim()) {
+      Alert.alert("Error", "Por favor, ingresa tu correo y contraseña.");
+      return;
+    }
+
+    setLoading(true);
     try {
-      const res = await axios.post("http://192.168.0.254:4000/api/auth/login", {
-        email,
+      const res = await axios.post(`${API_BASE_URL}/auth/login`, {
+        email: email.toLowerCase().trim(),
         password,
       });
 
-      // Validamos la estructura
-      if (!res.data || !res.data.user) {
-        Alert.alert("Error", "Respuesta inválida del servidor");
+      if (!res.data || !res.data.token || !res.data.user) {
+        Alert.alert(
+          "Error",
+          "Respuesta de autenticación inválida del servidor."
+        );
         return;
       }
 
-      // Guardamos el usuario y el token si está todo ok
-      // console.log("se elimino el token: ", resultado_token)
-      
-      // console.log("se guardo el token: ", res.data.token)
-      await AsyncStorage.setItem("token", res.data.token);
-      await AsyncStorage.setItem("user", JSON.stringify(res.data.user));
+      const loginSuccess = await signIn(res.data.token, res.data.user);
 
-      // Redirección basada en el rol
-      if (res.data.user.role === "pasajero") {
-        navigation.replace("PassengerHome"); // esta pantalla la tienes que registrar en tu navigator
-      } else if (res.data.user.role === "conductor") {
-        // navigation.replace("DriverHomeScreen"); // (cuando esté lista)
-        navigation.navigate("DriverRideInProgress", { ride: res.data });
+      if (loginSuccess) {
+        if (res.data.user.role === "pasajero") {
+          navigation.replace("PassengerHomeScreen");
+        } else if (res.data.user.role === "conductor") {
+          navigation.replace("DriverHome");
+        }
+      } else {
+        Alert.alert(
+          "Error",
+          "No se pudo guardar la sesión localmente. Intenta de nuevo."
+        );
+      }
+    } catch (err) {
+      console.error("Error de login:", err.response?.data || err.message);
+      let errorMessage =
+        "Ocurrió un error inesperado. Intenta de nuevo más tarde.";
+      if (err.response) {
+        if (err.response.status === 400 || err.response.status === 401) {
+          errorMessage =
+            "Credenciales inválidas. Verifica tu correo y contraseña.";
+        } else if (err.response.status === 500) {
+          errorMessage =
+            "Error del servidor. Por favor, intenta de nuevo más tarde.";
+        } else {
+          errorMessage = err.response.data?.message || errorMessage;
+        }
+      } else if (err.request) {
+        errorMessage =
+          "No se pudo conectar con el servidor. Verifica tu conexión a internet o intenta más tarde.";
       }
 
-      // navigation.reset({ index: 0, routes: [{ name: "Rides" }] });
-    } catch (err) {
-      console.error(err);
-      Alert.alert("Error", "Credenciales inválidas o servidor no disponible");
+      Alert.alert("Error de Login", errorMessage);
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -67,8 +96,11 @@ const LoginScreen = ({ navigation }) => {
             style={styles.input}
             placeholder="Correo electrónico"
             placeholderTextColor="#bbb"
+            keyboardType="email-address"
+            autoCapitalize="none"
             value={email}
             onChangeText={setEmail}
+            editable={!loading}
           />
 
           <TextInput
@@ -78,20 +110,30 @@ const LoginScreen = ({ navigation }) => {
             secureTextEntry
             value={password}
             onChangeText={setPassword}
+            editable={!loading}
           />
 
-          <TouchableOpacity onPress={login}>
+          <TouchableOpacity onPress={handleLogin} disabled={loading}>
+            {/* ELIMINADO: el espacio en blanco que causaba el error */}
             <LinearGradient
               colors={["#00f0ff", "#0cf574"]}
               start={[0, 0]}
               end={[1, 1]}
               style={styles.button}
             >
-              <Text style={styles.buttonText}>Ingresar</Text>
+              {loading ? (
+                <ActivityIndicator color="#0a0f1c" />
+              ) : (
+                <Text style={styles.buttonText}>Ingresar</Text>
+              )}
             </LinearGradient>
           </TouchableOpacity>
 
-          <TouchableOpacity onPress={() => navigation.navigate("Register")}>
+          <TouchableOpacity
+            onPress={() => navigation.navigate("Register")}
+            disabled={loading}
+          >
+            {/* Asegúrate de que no haya texto directo aquí tampoco, solo el componente Text */}
             <Text style={styles.link}>¿No tenés cuenta? Registrate</Text>
           </TouchableOpacity>
         </View>
@@ -108,6 +150,8 @@ const styles = StyleSheet.create({
   container: {
     padding: 24,
     backgroundColor: "#0a0f1c",
+    flex: 1,
+    justifyContent: "center",
   },
   logo: {
     width: 180,
