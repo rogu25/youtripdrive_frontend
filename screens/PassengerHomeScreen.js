@@ -15,7 +15,7 @@ import * as Location from "expo-location";
 import axios from "axios";
 import { useAuth } from "../context/AuthContext";
 import { useSocket } from "../context/SocketContext";
-import { API_BASE_URL } from "../utils/config"; // No se usa SOCKET_URL aquí directamente
+import { API_BASE_URL } from "../utils/config";
 import { LinearGradient } from "expo-linear-gradient";
 
 // Función para calcular la orientación del vehículo (para la rotación del icono)
@@ -32,7 +32,7 @@ const calculateBearing = (lat1, lon1, lat2, lon2) => {
 };
 
 const PassengerHomeScreen = ({ navigation }) => {
-  const { user, signOut, isAuthenticated } = useAuth();
+  const { user, logout, isAuthenticated } = useAuth();
   const { socket } = useSocket();
 
   const [region, setRegion] = useState(null); // Ubicación actual del pasajero
@@ -43,15 +43,13 @@ const PassengerHomeScreen = ({ navigation }) => {
   const mapRef = useRef(null);
 
   // **** TEMPORAL: Hardcodea un destino y un precio para pruebas ****
-  // En una aplicación real, esto se obtendría de la UI (input de usuario, selección en el mapa)
   const [priceOffered, setPriceOffered] = useState(15.50); // Ejemplo de precio
   const DEFAULT_DESTINATION = {
     latitude: -16.401, // Latitud de un punto cercano al centro de Arequipa
     longitude: -71.535, // Longitud de un punto cercano al centro de Arequipa
-    address: "Plaza de Armas de Arequipa" // Una dirección de ejemplo
+    address: "Plaza de Armas de Arequipa", // Una dirección de ejemplo
   };
   // ******************************************************************
-
 
   // 1. Obtener ubicación del pasajero al cargar la pantalla
   useEffect(() => {
@@ -78,12 +76,11 @@ const PassengerHomeScreen = ({ navigation }) => {
         });
         // Opcional: Centrar el mapa en la ubicación del usuario si se obtiene
         mapRef.current?.animateToRegion({
-            latitude: loc.coords.latitude,
-            longitude: loc.coords.longitude,
-            latitudeDelta: 0.01,
-            longitudeDelta: 0.01,
+          latitude: loc.coords.latitude,
+          longitude: loc.coords.longitude,
+          latitudeDelta: 0.01,
+          longitudeDelta: 0.01,
         }, 1000);
-
       } catch (error) {
         console.error("Error al obtener ubicación:", error);
         Alert.alert(
@@ -106,7 +103,6 @@ const PassengerHomeScreen = ({ navigation }) => {
         return;
       }
       try {
-        // console.log("Mi token:", user.token); // Debug
         const res = await axios.get(`${API_BASE_URL}/rides/active`, {
           headers: { Authorization: `Bearer ${user.token}` },
         });
@@ -127,7 +123,6 @@ const PassengerHomeScreen = ({ navigation }) => {
   }, [isAuthenticated, user?.token]);
 
   // 3. Obtener conductores disponibles y escuchar actualizaciones via REST (polling)
-  // Considera usar Socket.IO para esto para un tiempo real más eficiente
   useEffect(() => {
     const fetchDrivers = async () => {
       try {
@@ -141,9 +136,7 @@ const PassengerHomeScreen = ({ navigation }) => {
                 typeof driver.coordinates.longitude === "number"
             )
             .map((newDriver) => {
-              const prev = prevDrivers.find(
-                (d) => d._id === newDriver._id
-              ); // Usar _id para comparar
+              const prev = prevDrivers.find((d) => d._id === newDriver._id);
               let rotation = 0;
               if (prev && prev.coordinates && newDriver.coordinates) {
                 rotation = calculateBearing(
@@ -156,12 +149,6 @@ const PassengerHomeScreen = ({ navigation }) => {
               return {
                 ...newDriver,
                 rotation,
-                // Si tu backend devuelve el nombre del conductor directamente en 'name'
-                // no necesitas 'user: { name: ... }'. Revisa la estructura de 'res.data'
-                // Si viene como driver.name, entonces driver.name ya es suficiente.
-                // Si viene como driver.user.name, entonces es driver.user.name.
-                // Basado en tu JSON de available drivers, 'name' está directamente.
-                // Por lo tanto, driver.name en el Marker title es correcto.
               };
             })
         );
@@ -170,70 +157,64 @@ const PassengerHomeScreen = ({ navigation }) => {
           "Error cargando conductores (¡Verifica el backend!):",
           err.response?.data?.message || err.message
         );
-        // Opcional: Mostrar un mensaje al usuario si no se pueden cargar los conductores
-        // Alert.alert("Error", "No se pudieron cargar los conductores disponibles.");
       }
     };
 
     fetchDrivers();
-    // Polling cada 15 segundos para obtener conductores (considera cambiar a Socket.IO)
     const interval = setInterval(fetchDrivers, 15000);
     return () => clearInterval(interval);
   }, []);
 
   // 4. Manejo de eventos de Socket.IO para viajes y ubicación de conductor
   useEffect(() => {
-    if (!socket || !isAuthenticated || !user?.id) { // Usar user?._id para la autenticación en socket
+    // Usar user?.id consistentemente para los sockets
+    if (!socket || !isAuthenticated || !user?.id) {
       console.log(
         "Socket no listo o usuario no autenticado para eventos de pasajero."
       );
       return;
     }
 
-    // Unirse a una sala específica del usuario si es necesario para notificaciones directas
-    socket.emit("join_room", user.id); // Por ejemplo, para recibir ride_accepted para este usuario
+    socket.emit("join_room", user.id);
 
     socket.on("ride_accepted", (data) => {
       console.log("¡Viaje aceptado!", data);
-      // Asegúrate de que 'data.passenger' sea el ID del pasajero
-      if (data.passenger === user.id) { // Compara con user._id
-        setActiveRide(data); // `data` ya es el objeto `ride` completo o similar
+      if (data.passenger === user.id) {
+        setActiveRide(data);
         Alert.alert(
           "¡Viaje Aceptado!",
-          `Tu viaje ha sido aceptado por ${data.driver.name}.` // Asumiendo que `data.driver` está populado
+          `Tu viaje ha sido aceptado por ${data.driver.name}.`
         );
         navigation.navigate("PassengerRideInProgress", {
-          rideId: data._id, // Usar data._id del objeto ride completo
+          rideId: data._id,
         });
       }
     });
 
     socket.on("driver_location_update", (data) => {
-      // Esta lógica de actualización se manejará mejor en PassengerRideInProgress
-      // para centrar el mapa y mostrar la ruta del conductor.
-      // Aquí, solo actualizamos los drivers visibles en el mapa principal si es necesario.
       setDrivers((prevDrivers) => {
-          const updatedDrivers = prevDrivers.map(d => {
-            console.log("esto es dentro del hook state: ", d._id)
-              if (d._id === data.driverId) { // Compara con _id
-                  const rotation = calculateBearing(
-                      d.coordinates.latitude, d.coordinates.longitude,
-                      data.coordinates.latitude, data.coordinates.longitude
-                  );
-                  return { ...d, coordinates: data.coordinates, rotation };
-              }
-              return d;
-          });
-          return updatedDrivers;
+        const updatedDrivers = prevDrivers.map((d) => {
+          if (d._id === data.driverId) {
+            const rotation = calculateBearing(
+              d.coordinates.latitude,
+              d.coordinates.longitude,
+              data.coordinates.latitude,
+              data.coordinates.longitude
+            );
+            return { ...d, coordinates: data.coordinates, rotation };
+          }
+          return d;
+        });
+        return updatedDrivers;
       });
     });
 
-    socket.on("ride_status_updated", (data) => { // Renombrado de 'ride_status_update' a 'ride_status_updated' para coincidir con tu backend
+    socket.on("ride_status_updated", (data) => {
       if (activeRide && data.rideId === activeRide._id) {
         console.log(
           `Estado del viaje ${data.rideId} actualizado a: ${data.status}`
         );
-        if (data.status === "finalizado" || data.status === "cancelado") { // Estados en español
+        if (data.status === "finalizado" || data.status === "cancelado") {
           setActiveRide(null);
           Alert.alert(
             "Info",
@@ -241,10 +222,9 @@ const PassengerHomeScreen = ({ navigation }) => {
               data.status === "finalizado" ? "completado" : "cancelado"
             }.`
           );
-          // Reiniciar la navegación o volver a la pantalla principal
           navigation.reset({
             index: 0,
-            routes: [{ name: 'PassengerHomeScreen' }], // Asegúrate de que 'PassengerHomeScreen' es el nombre de esta pantalla en tu navegador
+            routes: [{ name: "PassengerHomeScreen" }],
           });
         } else {
           setActiveRide((prevRide) => ({ ...prevRide, status: data.status }));
@@ -255,15 +235,14 @@ const PassengerHomeScreen = ({ navigation }) => {
     return () => {
       socket.off("ride_accepted");
       socket.off("driver_location_update");
-      socket.off("ride_status_updated"); // Usar el nombre corregido
-      socket.emit("leave_room", user.id); // Salir de la sala al desmontar
+      socket.off("ride_status_updated");
+      socket.emit("leave_room", user.id);
     };
-  }, [socket, isAuthenticated, user?.id, activeRide, navigation]); // Dependencias correctas
+  }, [socket, isAuthenticated, user?.id, activeRide, navigation]);
 
   // Función para solicitar un viaje
   const handleRequestRide = async () => {
-    // Validaciones
-    if (!isAuthenticated || !user?.id || !region) { // Usar user?._id
+    if (!isAuthenticated || !user?.id || !region) {
       Alert.alert(
         "Error",
         "Necesitas estar logueado y tener una ubicación para solicitar un viaje."
@@ -275,12 +254,11 @@ const PassengerHomeScreen = ({ navigation }) => {
         "Atención",
         `Ya tienes un viaje en estado: ${activeRide.status}.`
       );
-      // Lógica para navegar a la pantalla de viaje activo si ya existe
-      if (activeRide.status === "buscando" || activeRide.status === "aceptado") { // Estados en español
+      if (activeRide.status === "buscando" || activeRide.status === "aceptado") {
         navigation.navigate("WaitingForDriverScreen", {
           rideId: activeRide._id,
         });
-      } else if (activeRide.status === "en_curso") { // Estado en español
+      } else if (activeRide.status === "en_curso") {
         navigation.navigate("PassengerRideInProgress", {
           rideId: activeRide._id,
         });
@@ -288,15 +266,9 @@ const PassengerHomeScreen = ({ navigation }) => {
       return;
     }
 
-    // **** TEMPORAL: Asegúrate de que el destino esté definido para la solicitud ****
-    // Para una experiencia de usuario real, aquí iría la lógica para que el usuario seleccione el destino.
-    // Por ahora, usamos el destino por defecto.
     if (!destinationRegion) {
-        setDestinationRegion(DEFAULT_DESTINATION);
-        // Podrías poner un Alert aquí para indicar que se usará un destino por defecto.
-        // Alert.alert("Destino de Prueba", "Se utilizará un destino predefinido para la solicitud.");
+      setDestinationRegion(DEFAULT_DESTINATION);
     }
-    // ********************************************************************************
 
     setLoading(true);
     try {
@@ -304,36 +276,37 @@ const PassengerHomeScreen = ({ navigation }) => {
         origin: {
           latitude: region.latitude,
           longitude: region.longitude,
-          address: "Mi ubicación actual" // Aquí podrías usar una geocodificación inversa real
+          address: "Mi ubicación actual",
         },
-        destination: { // ¡ESTO ES LO NUEVO REQUERIDO!
-          latitude: destinationRegion?.latitude || DEFAULT_DESTINATION.latitude, // Usa el estado si está definido, si no, el default
-          longitude: destinationRegion?.longitude || DEFAULT_DESTINATION.longitude, // Usa el estado si está definido, si no, el default
-          address: destinationRegion?.address || DEFAULT_DESTINATION.address // Usa el estado si está definido, si no, el default
+        destination: {
+          latitude: destinationRegion?.latitude || DEFAULT_DESTINATION.latitude,
+          longitude:
+            destinationRegion?.longitude || DEFAULT_DESTINATION.longitude,
+          address: destinationRegion?.address || DEFAULT_DESTINATION.address,
         },
-        price_offered: priceOffered, // ¡ESTO ES LO NUEVO REQUERIDO!
+        price_offered: priceOffered,
       };
 
       console.log("Solicitando viaje con payload:", rideRequest);
       const response = await axios.post(
-        `${API_BASE_URL}/rides`, // Endpoint correcto: POST /api/rides/
+        `${API_BASE_URL}/rides`,
         rideRequest,
         {
           headers: { Authorization: `Bearer ${user.token}` },
         }
       );
 
-      setActiveRide(response.data.ride); // Asegúrate de acceder a 'ride' dentro de la respuesta
+      setActiveRide(response.data.ride);
       Alert.alert("Viaje solicitado", "Buscando un conductor para tu viaje...");
       navigation.navigate("WaitingForDriverScreen", {
-        rideId: response.data.ride._id, // Pasa el _id del viaje creado
+        rideId: response.data.ride._id,
       });
     } catch (err) {
       console.error(
         "Error al solicitar viaje:",
         err.response?.data?.message || err.message,
         err.response?.status,
-        err.response?.data // Imprime los datos completos del error si están disponibles
+        err.response?.data
       );
       if (err.response?.status === 409) {
         Alert.alert(
@@ -341,10 +314,7 @@ const PassengerHomeScreen = ({ navigation }) => {
           err.response.data?.message || "Ya tienes un viaje activo."
         );
       } else {
-        Alert.alert(
-          "Error",
-          "No se pudo solicitar el viaje. Intenta de nuevo."
-        );
+        Alert.alert("Error", "No se pudo solicitar el viaje. Intenta de nuevo.");
       }
     } finally {
       setLoading(false);
@@ -355,14 +325,10 @@ const PassengerHomeScreen = ({ navigation }) => {
     Alert.alert(
       "Cerrar Sesión",
       "¿Estás seguro de que quieres cerrar tu sesión?",
-      [
-        { text: "Cancelar", style: "cancel" },
-        { text: "Sí", onPress: () => signOut() },
-      ]
+      [{ text: "Cancelar", style: "cancel" }, { text: "Sí", onPress: () => logout() }]
     );
   };
 
-  // Mueve el handleMapPress aquí para interactividad de selección de destino
   const handleMapPress = (e) => {
     const { latitude, longitude } = e.nativeEvent.coordinate;
     setDestinationRegion({
@@ -370,14 +336,13 @@ const PassengerHomeScreen = ({ navigation }) => {
       longitude,
       latitudeDelta: 0.01,
       longitudeDelta: 0.01,
-      address: `Destino: ${latitude.toFixed(4)}, ${longitude.toFixed(4)}` // Puedes usar una API de geocodificación inversa para una dirección real
+      address: `Destino: ${latitude.toFixed(4)}, ${longitude.toFixed(4)}`,
     });
     Alert.alert(
-        "Destino Seleccionado",
-        `Has seleccionado un destino en ${latitude.toFixed(4)}, ${longitude.toFixed(4)}.`
+      "Destino Seleccionado",
+      `Has seleccionado un destino en ${latitude.toFixed(4)}, ${longitude.toFixed(4)}.`
     );
   };
-
 
   if (loading || !region) {
     return (
@@ -396,9 +361,8 @@ const PassengerHomeScreen = ({ navigation }) => {
         initialRegion={region}
         showsUserLocation={true}
         followsUserLocation={true}
-        onPress={handleMapPress} // Permite seleccionar destino al tocar el mapa
+        onPress={handleMapPress}
       >
-        {/* Marcador de la ubicación actual del pasajero (ya lo hace showsUserLocation, pero puedes añadir uno personalizado) */}
         {region && (
           <Marker
             coordinate={region}
@@ -406,24 +370,22 @@ const PassengerHomeScreen = ({ navigation }) => {
             description="Punto de inicio del viaje"
           >
             <Image
-              source={require("../assets/passenger-icon.png")} // Un ícono diferente para el pasajero
+              source={require("../assets/passenger-icon.png")}
               style={{ width: 30, height: 30 }}
               resizeMode="contain"
             />
           </Marker>
         )}
 
-        {/* Marcador de Destino Seleccionado */}
         {destinationRegion && (
           <Marker
             coordinate={destinationRegion}
             title="Tu Destino"
             description={destinationRegion.address || "Punto de destino del viaje"}
-            pinColor="blue" // Un color diferente para el destino
+            pinColor="blue"
           />
         )}
 
-        {/* Marcadores de Conductores disponibles */}
         {drivers.map((driver) => {
           if (
             driver.coordinates &&
@@ -432,11 +394,12 @@ const PassengerHomeScreen = ({ navigation }) => {
           ) {
             return (
               <Marker
-                key={driver._id} // Usar driver._id como key
+                key={driver._id}
                 coordinate={{
                   latitude: driver.coordinates.latitude,
                   longitude: driver.coordinates.longitude,
                 }}
+                // CORREGIDO: Asegurarse de que 'title' y 'description' sean strings
                 title={driver.name || "Conductor"}
                 description={"Conductor disponible"}
               >
@@ -462,26 +425,26 @@ const PassengerHomeScreen = ({ navigation }) => {
             <Text style={styles.statusText}>
               Estado del viaje: {activeRide.status?.toUpperCase()}
             </Text>
-            {activeRide.status === "buscando" && ( // Estado en español
+            {activeRide.status === "buscando" && (
               <Text style={styles.subStatusText}>Buscando un conductor...</Text>
             )}
-            {activeRide.status === "aceptado" && ( // Estado en español
+            {activeRide.status === "aceptado" && (
               <Text style={styles.subStatusText}>Conductor en camino.</Text>
             )}
-            {activeRide.status === "en_curso" && ( // Estado en español
+            {activeRide.status === "en_curso" && (
               <Text style={styles.subStatusText}>Viaje en curso.</Text>
             )}
             <Button
               title="Ver Detalles del Viaje"
               onPress={() => {
                 if (
-                  activeRide.status === "buscando" || // Estado en español
-                  activeRide.status === "aceptado"    // Estado en español
+                  activeRide.status === "buscando" ||
+                  activeRide.status === "aceptado"
                 ) {
                   navigation.navigate("WaitingForDriverScreen", {
                     rideId: activeRide._id,
                   });
-                } else if (activeRide.status === "en_curso") { // Estado en español
+                } else if (activeRide.status === "en_curso") {
                   navigation.navigate("PassengerRideInProgress", {
                     rideId: activeRide._id,
                   });
@@ -492,7 +455,6 @@ const PassengerHomeScreen = ({ navigation }) => {
           </View>
         )}
 
-        {/* Muestra el botón de solicitar viaje solo si no hay un viaje activo */}
         {!activeRide && (
           <TouchableOpacity
             onPress={handleRequestRide}
@@ -516,13 +478,13 @@ const PassengerHomeScreen = ({ navigation }) => {
 
         <View style={styles.bottomButtons}>
           {activeRide &&
-            activeRide.status !== "finalizado" && // Estado en español
-            activeRide.status !== "cancelado" && ( // Estado en español
+            activeRide.status !== "finalizado" &&
+            activeRide.status !== "cancelado" && (
               <TouchableOpacity
                 onPress={() =>
                   navigation.navigate("RideChat", {
                     rideId: activeRide._id,
-                    userId: user.id, // Usar user._id
+                    userId: user.id,
                     userName: user.name,
                   })
                 }

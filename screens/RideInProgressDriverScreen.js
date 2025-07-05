@@ -44,6 +44,9 @@ const RideInProgressDriverScreen = ({ route, navigation }) => {
 
   // Función para obtener los detalles completos del viaje
   const fetchRideDetails = useCallback(async () => {
+    console.log("lo que contiene { rideId } = route.params: ",route.params)
+    console.log("lo que contiene isAuthenticated ",isAuthenticated)
+    console.log("lo que contiene !user?.token: ",user.token)
     if (!isAuthenticated || !user?.token || !rideId) {
       Alert.alert("Error", "No estás autenticado o ID de viaje no válido.");
       setLoading(false);

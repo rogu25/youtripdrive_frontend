@@ -1,87 +1,59 @@
-// context/AuthContext.js
-import React, { createContext, useState, useEffect, useContext } from "react";
-import AsyncStorage from "@react-native-async-storage/async-storage";
-import { API_BASE_URL } from '../utils/config.js'; // Importaremos esto en un paso posterior (config.js)
-// Asegúrate de que tengas una configuración similar para tu backend base URL.
+import React, { createContext, useState, useContext, useEffect } from 'react';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
-// Creamos el contexto de autenticación
 const AuthContext = createContext();
 
-// Hook personalizado para consumir el contexto de autenticación fácilmente
-export const useAuth = () => {
-  return useContext(AuthContext);
-};
-
-// Proveedor del contexto de autenticación
 export const AuthProvider = ({ children }) => {
-  const [user, setUser] = useState(null); // Almacena { token, userId, role, name, email }
-  const [isLoading, setIsLoading] = useState(true); // Para el estado de carga inicial
+  const [user, setUser] = useState(null);
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [loading, setLoading] = useState(true); // Para controlar la carga inicial del token
 
-  // Efecto para cargar el usuario desde AsyncStorage al iniciar la app
   useEffect(() => {
     const loadUser = async () => {
       try {
-        const storedUser = await AsyncStorage.getItem("user");
+        const storedUser = await AsyncStorage.getItem('user');
         if (storedUser) {
-          const userData = JSON.parse(storedUser);
-          setUser(userData);
+          const parsedUser = JSON.parse(storedUser);
+          setUser(parsedUser);
+          setIsAuthenticated(true);
         }
       } catch (error) {
-        console.error("Error cargando usuario desde AsyncStorage:", error);
-        // Podrías decidir limpiar AsyncStorage aquí si hay un error de parseo, por ejemplo
-        await AsyncStorage.removeItem("user");
+        console.error('Error loading user from AsyncStorage:', error);
       } finally {
-        setIsLoading(false); // La carga inicial ha terminado
+        setLoading(false);
       }
     };
-
     loadUser();
   }, []);
 
-  // Función para iniciar sesión
-  const signIn = async (token, userData) => {
-    // userData debe contener al menos { userId, role, name, email }
+  const login = async (userData) => {
     try {
-      const fullUserData = { ...userData, token };
-      await AsyncStorage.setItem("user", JSON.stringify(fullUserData));
-      setUser(fullUserData);
-      return true; // Éxito
+      // Asume que userData incluye { token, name, email, _id, role }
+      await AsyncStorage.setItem('user', JSON.stringify(userData));
+      setUser(userData);
+      setIsAuthenticated(true);
+      console.log('User logged in:', userData.email, 'Role:', userData.role);
     } catch (error) {
-      console.error("Error al guardar usuario en AsyncStorage:", error);
-      return false; // Fallo
+      console.error('Error saving user to AsyncStorage:', error);
     }
   };
 
-  // Función para cerrar sesión
-  const signOut = async () => {
+  const logout = async () => {
     try {
-      await AsyncStorage.removeItem("user");
-      setUser(null); // Limpiar el estado del usuario
-      // IMPORTANTE: Aquí también deberías desconectar el socket si está conectado
-      // Esto lo haremos en SocketContext, pero es un punto a recordar.
-      return true; // Éxito
+      await AsyncStorage.removeItem('user');
+      setUser(null);
+      setIsAuthenticated(false);
+      console.log('User logged out.');
     } catch (error) {
-      console.error("Error al remover usuario de AsyncStorage:", error);
-      return false; // Fallo
+      console.error('Error removing user from AsyncStorage:', error);
     }
-  };
-
-  // Puedes añadir una función para actualizar el token si expira
-  // const refreshToken = async () => { ... }
-
-  // Valor que será provisto a los componentes que consuman este contexto
-  const authContextValue = {
-    user, // El objeto user (contiene token, userId, role, name, etc.)
-    isAuthenticated: !!user?.token, // true si hay un token y user no es null
-    isLoading, // Estado de carga inicial
-    signIn, // Función para iniciar sesión
-    signOut, // Función para cerrar sesión
-    // ... otras funciones como refreshToken
   };
 
   return (
-    <AuthContext.Provider value={authContextValue}>
+    <AuthContext.Provider value={{ user, isAuthenticated, login, logout, loading }}>
       {children}
     </AuthContext.Provider>
   );
 };
+
+export const useAuth = () => useContext(AuthContext);
