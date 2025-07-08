@@ -287,7 +287,7 @@ const PassengerHomeScreen = ({ navigation }) => {
         price_offered: priceOffered,
       };
 
-      console.log("Solicitando viaje con payload:", rideRequest);
+      
       const response = await axios.post(
         `${API_BASE_URL}/rides`,
         rideRequest,
@@ -295,7 +295,7 @@ const PassengerHomeScreen = ({ navigation }) => {
           headers: { Authorization: `Bearer ${user.token}` },
         }
       );
-
+    
       setActiveRide(response.data.ride);
       Alert.alert("Viaje solicitado", "Buscando un conductor para tu viaje...");
       navigation.navigate("WaitingForDriverScreen", {

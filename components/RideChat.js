@@ -40,12 +40,13 @@ const RideChat = () => {
       socketRef.current.disconnect();
     };
   }, [rideId]);
-
+console.log("EL ID EN EL CHAT: ", rideId)
   useEffect(() => {
     const fetchMessages = async () => {
       try {
         const token = await AsyncStorage.getItem("token");
-        const res = await axios.get(`${API_URL}/api/messages/${rideId}`, {
+        console.log("EL ID EN EL CHAT: ", token)
+        const res = await axios.get(`${API_URL}/messages/${rideId}`, {
           headers: { Authorization: `Bearer ${token}` },
         });
         setMessages(res.data);
@@ -104,9 +105,7 @@ const RideChat = () => {
           />
 
           {typingUser && (
-            <Text style={styles.typingText}>
-              {typingUser} está escribiendo...
-            </Text>
+            <Text style={styles.typingText}> está escribiendo...</Text>
           )}
 
           <View style={styles.inputContainer}>
