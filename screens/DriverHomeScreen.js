@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, use } from 'react';
 import { View, Text, StyleSheet, Button, Alert, ActivityIndicator, Switch } from 'react-native';
 import { useAuth } from '../context/AuthContext';
 import { useNavigation } from '@react-navigation/native';
@@ -18,6 +18,7 @@ const DriverHomeScreen = () => {
         return;
       }
       try {
+        
         const response = await axios.get(`${API_BASE_URL}/drivers/${user.id}/availability`, {
           headers: {
             Authorization: `Bearer ${user.token}`,

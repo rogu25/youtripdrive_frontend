@@ -97,6 +97,7 @@ const PassengerHomeScreen = ({ navigation }) => {
 
   // 2. Verificar viaje activo al cargar la pantalla y cada vez que el usuario o la autenticación cambien
   useEffect(() => {
+    console.log("Cargando el token del PASAJERO: ", user.token)
     const checkActiveRide = async () => {
       if (!isAuthenticated || !user?.token) {
         setActiveRide(null);

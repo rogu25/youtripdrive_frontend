@@ -25,7 +25,7 @@ const WaitingForDriverScreen = ({ route, navigation }) => {
     "WaitingForDriverScreen - Token:",
     user?.token ? "Presente" : "Ausente"
   );
-  console.log("WaitingForDriverScreen - User ID:", user?.id); // Mejor usar user.id del AuthContext si es lo que usas globalmente
+  // console.log("WaitingForDriverScreen - User ID:", user?.id); // Mejor usar user.id del AuthContext si es lo que usas globalmente
 
   const fetchRideDetails = useCallback(async () => {
     if (!isAuthenticated || !user?.token || !rideId) {
@@ -173,7 +173,7 @@ const WaitingForDriverScreen = ({ route, navigation }) => {
 
     // ✅ EVENTO: El conductor ha aceptado el viaje
     const handleRideAccepted = (data) => {
-      console.log("Socket: ride_accepted recibido", data);
+      // console.log("Socket: ride_accepted recibido", data);
       // Asegurarse de que el evento es para el viaje y el pasajero correctos
       // Comparamos el ID del viaje recibido con el rideId actual
       // Y el passengerId recibido con el ID del usuario autenticado (si el backend lo envía)
@@ -190,7 +190,7 @@ const WaitingForDriverScreen = ({ route, navigation }) => {
 
     // ✅ EVENTO: Actualización general del estado del viaje
     const handleRideStatusUpdated = (data) => {
-      console.log("Socket: ride_status_updated recibido", data);
+      // console.log("Socket: ride_status_updated recibido", data);
       if (data.rideId === rideId) {
         setRide((prevRide) => ({ ...prevRide, status: data.status })); // Actualiza el estado local
 
@@ -219,7 +219,7 @@ const WaitingForDriverScreen = ({ route, navigation }) => {
 
     // ✅ EVENTO: Un conductor ha rechazado la solicitud (si manejas esto específicamente)
     const handleRideRejected = (data) => {
-      console.log("Socket: ride_rejected recibido", data);
+      // console.log("Socket: ride_rejected recibido", data);
       if (data.rideId === rideId && data.passengerId === user.id) {
         Alert.alert(
           "Viaje Rechazado",
@@ -237,7 +237,7 @@ const WaitingForDriverScreen = ({ route, navigation }) => {
 
     // --- Función de limpieza ---
     return () => {
-      console.log("Socket useEffect: Limpiando listeners.");
+      // console.log("Socket useEffect: Limpiando listeners.");
       socket.off("ride_accepted", handleRideAccepted);
       socket.off("ride_status_updated", handleRideStatusUpdated);
       socket.off("ride_rejected", handleRideRejected);

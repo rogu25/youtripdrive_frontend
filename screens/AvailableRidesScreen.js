@@ -82,7 +82,7 @@ const AvailableRidesScreen = ({ navigation }) => {
   const handleAcceptRide = async (rideId) => {
     try {
       const token = user?.token || await AsyncStorage.getItem("token");
-      console.log("que contiene rideID: ", rideId)
+      
       if (!token) {
         Alert.alert("Error de autenticación", "No se encontró el token de usuario.");
         navigation.replace('Login');
@@ -97,7 +97,7 @@ const AvailableRidesScreen = ({ navigation }) => {
         }
       );
 
-      console.log("Viaje aceptado:", res.data.ride._id);
+      
       Alert.alert("Viaje Aceptado", `¡Has aceptado el viaje con ${res.data.ride.passenger?.name || 'el pasajero'}! Dirígete al punto de recogida.`);
 
       // Redirigir a pantalla de viaje en curso
