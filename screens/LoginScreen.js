@@ -49,7 +49,7 @@ const LoginScreen = ({ navigation }) => {
         ...res.data.user, // Desestructura los datos del usuario (_id, name, email, role, etc.)
         token: res.data.token, // Añade el token al mismo objeto
       };
-      
+      console.log("userDataToSave: ", userDataToSave)
       // Llamada a la función login del contexto con un único objeto
       await login(userDataToSave); 
 

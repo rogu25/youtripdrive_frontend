@@ -8,13 +8,13 @@ import {
   ActivityIndicator,
   Image,
 } from "react-native";
-import MapView, { Marker, Polyline } from "react-native-maps";
+import MapView, { Marker } from "react-native-maps"; // Polyline no es necesario si usas MapViewDirections
 import MapViewDirections from "react-native-maps-directions";
 import * as Location from "expo-location";
 import axios from "axios";
 import { useAuth } from "../context/AuthContext";
 import { useSocket } from "../context/SocketContext";
-import { API_BASE_URL, Maps_API_KEY } from "../utils/config"; // Asegúrate de tener tu clave API de Google Maps aquí
+import { API_BASE_URL, Maps_API_KEY } from "../utils/config";
 import { Ionicons } from "@expo/vector-icons";
 
 // Función para calcular la orientación del vehículo (copia de PassengerRideInProgress)
@@ -31,26 +31,23 @@ const calculateBearing = (lat1, lon1, lat2, lon2) => {
 };
 
 const RideInProgressDriverScreen = ({ route, navigation }) => {
-  const { rideId } = route.params; // Esperamos el ID del viaje, no el objeto completo
+  const { rideId } = route.params;
   const { user, isAuthenticated, signOut } = useAuth();
   const { socket } = useSocket();
-  const mapRef = useRef(null); // Para controlar la cámara del mapa
-  const locationSubscription = useRef(null); // Para la suscripción de ubicación
-  const [rideDetails, setRideDetails] = useState(null); // Almacena todos los detalles del viaje
-  const [driverLocation, setDriverLocation] = useState(null); // Ubicación actual del conductor
+  const mapRef = useRef(null);
+  const locationSubscription = useRef(null);
+  const [rideDetails, setRideDetails] = useState(null);
+  const [driverLocation, setDriverLocation] = useState(null);
   const [loading, setLoading] = useState(true);
 
   // --- Funciones de Gestión de Viaje ---
 
   // Función para obtener los detalles completos del viaje
   const fetchRideDetails = useCallback(async () => {
-    console.log("lo que contiene { rideId } = route.params: ",route.params)
-    console.log("lo que contiene isAuthenticated ",isAuthenticated)
-    console.log("lo que contiene !user?.token: ",user.token)
     if (!isAuthenticated || !user?.token || !rideId) {
       Alert.alert("Error", "No estás autenticado o ID de viaje no válido.");
       setLoading(false);
-      navigation.replace("DriverHome"); // Redirigir al DriverHome
+      navigation.replace("DriverHome");
       return;
     }
     try {
@@ -60,49 +57,18 @@ const RideInProgressDriverScreen = ({ route, navigation }) => {
       });
       const rideData = response.data;
 
-      // Validar si el conductor actual es el asignado a este viaje
       if (rideData.driver?._id !== user.id) {
-          Alert.alert("Acceso Denegado", "Este viaje no te ha sido asignado.");
-          navigation.replace("DriverHome");
-          return;
-      }
-
-      setRideDetails(rideData);
-
-      // Si el viaje ya está completado o cancelado, navegar fuera
-      if (rideData.status === 'completed' || rideData.status === 'cancelled') {
-        Alert.alert("Viaje Finalizado", `Este viaje ya ha sido ${rideData.status}.`);
+        Alert.alert("Acceso Denegado", "Este viaje no te ha sido asignado.");
         navigation.replace("DriverHome");
         return;
       }
 
-      // Centrar el mapa en la ubicación inicial (conductor o pasajero)
-      if (mapRef.current && (rideData.origin || driverLocation)) {
-          const coordsToFit = [];
-          if (driverLocation) {
-              coordsToFit.push(driverLocation);
-          } else if (rideData.driverLocation?.coordinates?.latitude && rideData.driverLocation?.coordinates?.longitude) {
-            // Usar la última ubicación conocida del conductor del backend si está disponible
-            setDriverLocation({
-              latitude: rideData.driverLocation.coordinates.latitude,
-              longitude: rideData.driverLocation.coordinates.longitude,
-            });
-            coordsToFit.push({ latitude: rideData.driverLocation.coordinates.latitude, longitude: rideData.driverLocation.coordinates.longitude });
-          }
+      setRideDetails(rideData);
 
-          if (rideData.origin?.latitude && rideData.origin?.longitude) {
-              coordsToFit.push({ latitude: rideData.origin.latitude, longitude: rideData.origin.longitude });
-          }
-          if (rideData.destination?.latitude && rideData.destination?.longitude && rideData.status === 'in_progress') {
-              coordsToFit.push({ latitude: rideData.destination.latitude, longitude: rideData.destination.longitude });
-          }
-
-          if (coordsToFit.length > 0) {
-              mapRef.current.fitToCoordinates(coordsToFit, {
-                  edgePadding: { top: 100, right: 50, bottom: 50, left: 50 },
-                  animated: true,
-              });
-          }
+      if (rideData.status === 'finalizado' || rideData.status === 'cancelado') {
+        Alert.alert("Viaje Finalizado", `Este viaje ya ha sido ${rideData.status}.`);
+        navigation.replace("DriverHome");
+        return;
       }
 
     } catch (err) {
@@ -117,48 +83,68 @@ const RideInProgressDriverScreen = ({ route, navigation }) => {
     } finally {
       setLoading(false);
     }
-  }, [isAuthenticated, user, rideId, navigation, signOut, driverLocation]);
+  }, [isAuthenticated, user, rideId, navigation, signOut]); // Eliminado driverLocation de aquí, ya que fetchRideDetails no lo necesita para cargar los detalles.
 
   // Función para iniciar el seguimiento de ubicación
+  // rideDetails._id se necesita aquí, así que 'rideDetails' debe ser una dependencia.
+  // Pero necesitamos asegurarnos de que rideDetails no sea null.
   const startLocationTracking = useCallback(async () => {
-    const { status } = await Location.requestForegroundPermissionsAsync();
-    if (status !== "granted") {
-      Alert.alert("Permiso de ubicación denegado", "No podemos rastrear tu ubicación. Esto es necesario para el viaje.");
-      // Considerar navegar fuera si no se da permiso
+    if (!socket || !user?.id || !rideDetails?._id) { // Añadimos chequeo explícito de rideDetails._id
+      console.warn("No se puede iniciar el tracking: socket, user.id o rideDetails._id es nulo/indefinido.");
       return;
     }
 
-    if (!socket) {
-        console.warn("Socket no conectado para tracking de ubicación.");
-        return;
+    const { status } = await Location.requestForegroundPermissionsAsync();
+    if (status !== "granted") {
+      Alert.alert("Permiso de ubicación denegado", "No podemos rastrear tu ubicación. Esto es necesario para el viaje.");
+      return;
+    }
+
+    // Si ya existe una suscripción, la eliminamos para evitar duplicados
+    if (locationSubscription.current) {
+        locationSubscription.current.remove();
+        locationSubscription.current = null;
     }
 
     locationSubscription.current = await Location.watchPositionAsync(
       {
         accuracy: Location.Accuracy.High,
-        timeInterval: 5000, // Cada 5 segundos
-        distanceInterval: 10, // O cada 10 metros
+        timeInterval: 5000,
+        distanceInterval: 10,
       },
       (location) => {
         const { latitude, longitude } = location.coords;
-        setDriverLocation({ latitude, longitude }); // Actualizar estado local
-
-        // Emitir ubicación al backend a través de socket
-        socket.emit('driver_location_update', {
-          driverId: user._id,
-          coordinates: { latitude, longitude },
-          rideId: rideDetails?._id, // Enviar el rideId para asociar la ubicación al viaje
+        setDriverLocation(prevLocation => {
+          const newDriverLocation = {
+            latitude,
+            longitude,
+            prevLatitude: prevLocation ? prevLocation.latitude : latitude, // Guardar la ubicación previa para el cálculo del bearing
+            prevLongitude: prevLocation ? prevLocation.longitude : longitude,
+          };
+          // Emitir ubicación al backend a través de socket
+          socket.emit('driver_location_update', {
+            driverId: user.id,
+            coordinates: { latitude, longitude },
+            rideId: rideDetails._id, // rideDetails._id ya está garantizado por la guarda inicial
+          });
+          return newDriverLocation;
         });
       }
     );
-  }, [socket, user, rideDetails]);
+  }, [socket, user, rideDetails]); // `rideDetails` es una dependencia porque se usa `rideDetails._id` en el `socket.emit`
+
 
   // Manejadores de estado del viaje
   const updateRideStatus = useCallback(async (newStatus, alertMessage) => {
-    if (!rideDetails || !user?.token) return;
+    // console.log("rideDetails en updateRideStatus:", rideDetails); // Ahora este log debería mostrar el objeto
+    if (!rideDetails || !user?.token) {
+        // console.log("Guardia activada en updateRideStatus: rideDetails o token faltante.");
+        return;
+    }
     try {
       const token = user.token;
-      await axios.patch(
+      console.log("RIDE IN PORGRESSS: ", token)
+      await axios.put(
         `${API_BASE_URL}/rides/status/${rideDetails._id}`,
         { status: newStatus },
         {
@@ -167,24 +153,23 @@ const RideInProgressDriverScreen = ({ route, navigation }) => {
       );
       setRideDetails(prev => ({ ...prev, status: newStatus })); // Actualizar estado local
 
-      // Emitir evento de socket para notificar al pasajero y al sistema
       if (socket) {
         socket.emit('ride_status_update', {
           rideId: rideDetails._id,
           status: newStatus,
-          passengerId: rideDetails.passenger?._id, // Enviar ID del pasajero
+          passengerId: rideDetails.passenger?._id,
         });
-        if (newStatus === 'in_progress') {
+        if (newStatus === 'en_curso') {
             socket.emit('ride_started', { rideId: rideDetails._id, passengerId: rideDetails.passenger?._id });
-        } else if (newStatus === 'completed') {
+        } else if (newStatus === 'finalizado') {
             socket.emit('ride_completed', { rideId: rideDetails._id, passengerId: rideDetails.passenger?._id });
-        } else if (newStatus === 'cancelled') {
+        } else if (newStatus === 'cancelado') {
             socket.emit('ride_cancelled_by_driver', { rideId: rideDetails._id, passengerId: rideDetails.passenger?._id });
         }
       }
 
       Alert.alert("Éxito", alertMessage);
-      if (newStatus === 'completed' || newStatus === 'cancelled') {
+      if (newStatus === 'finalizado' || newStatus === 'cancelado') {
           navigation.replace("DriverHome");
       }
     } catch (err) {
@@ -194,96 +179,127 @@ const RideInProgressDriverScreen = ({ route, navigation }) => {
   }, [rideDetails, user, socket, navigation]);
 
 
-  const handlePickedUpPassenger = () => {
+  const handlePickedUpPassenger = useCallback(() => {
     Alert.alert(
       "Confirmar Recogida",
       "¿Has recogido al pasajero y estás listo para iniciar el viaje?",
       [
         { text: "No", style: "cancel" },
-        { text: "Sí", onPress: () => updateRideStatus("in_progress", "Viaje iniciado.") },
+        { text: "Sí", onPress: () => updateRideStatus("en_curso", "Viaje iniciado.") },
       ]
     );
-  };
+  }, [updateRideStatus]); // updateRideStatus es una dependencia ya que se usa aquí
 
-  const handleFinishRide = () => {
+  const handleFinishRide = useCallback(() => {
     Alert.alert(
       "Finalizar Viaje",
       "¿Estás seguro de que quieres finalizar el viaje?",
       [
         { text: "No", style: "cancel" },
-        { text: "Sí", onPress: () => updateRideStatus("completed", "Viaje finalizado.") },
+        { text: "Sí", onPress: () => updateRideStatus("finalizado", "Viaje finalizado.") },
       ]
     );
-  };
+  }, [updateRideStatus]);
 
-  const handleCancelRide = () => {
+  const handleCancelRide = useCallback(() => {
     Alert.alert(
       "Cancelar Viaje",
       "¿Estás seguro de que quieres cancelar este viaje? Esto notificará al pasajero.",
       [
         { text: "No", style: "cancel" },
-        { text: "Sí", onPress: () => updateRideStatus("cancelled", "Viaje cancelado.") },
+        { text: "Sí", onPress: () => updateRideStatus("cancelado", "Viaje cancelado.") },
       ]
     );
-  };
+  }, [updateRideStatus]);
 
   // --- useEffects ---
-  useEffect(() => {
-    fetchRideDetails(); // Cargar detalles del viaje al montar
-  }, [fetchRideDetails]);
 
+  // 1. Cargar detalles del viaje al montar o cuando cambian rideId/user
   useEffect(() => {
-    // Iniciar o detener el seguimiento de ubicación según el estado del viaje
-    if (rideDetails && (rideDetails.status === 'accepted' || rideDetails.status === 'in_progress')) {
-      startLocationTracking();
-    } else {
-      if (locationSubscription.current) {
-        locationSubscription.current.remove();
-        locationSubscription.current = null;
+    fetchRideDetails();
+  }, [fetchRideDetails]); // fetchRideDetails es una dependencia porque es un useCallback
+
+  // 2. Iniciar/Detener seguimiento de ubicación y ajuste del mapa
+  // Este useEffect debe reaccionar a rideDetails, ya que 'status' y 'origin/destination' son cruciales.
+  // También debe reaccionar a driverLocation para ajustar el mapa cuando la ubicación del conductor se actualice.
+  useEffect(() => {
+      // Ajustar la cámara del mapa
+      if (mapRef.current && rideDetails) {
+          const coordsToFit = [];
+          if (driverLocation) {
+              coordsToFit.push(driverLocation);
+          } else if (rideDetails.driverLocation?.coordinates?.latitude && rideDetails.driverLocation?.coordinates?.longitude) {
+              // Usar la última ubicación conocida del conductor del backend si está disponible
+              setDriverLocation({
+                  latitude: rideDetails.driverLocation.coordinates.latitude,
+                  longitude: rideDetails.driverLocation.coordinates.longitude,
+              });
+              coordsToFit.push({ latitude: rideDetails.driverLocation.coordinates.latitude, longitude: rideDetails.driverLocation.coordinates.longitude });
+          }
+
+          if (rideDetails.origin?.latitude && rideDetails.origin?.longitude) {
+              coordsToFit.push({ latitude: rideDetails.origin.latitude, longitude: rideDetails.origin.longitude });
+          }
+          if (rideDetails.destination?.latitude && rideDetails.destination?.longitude && rideDetails.status === 'en_curso') {
+              coordsToFit.push({ latitude: rideDetails.destination.latitude, longitude: rideDetails.destination.longitude });
+          }
+
+          if (coordsToFit.length > 0) {
+              mapRef.current.fitToCoordinates(coordsToFit, {
+                  edgePadding: { top: 100, right: 50, bottom: 50, left: 50 },
+                  animated: true,
+              });
+          }
       }
-    }
 
-    return () => {
-      // Limpiar suscripción de ubicación al desmontar o al cambiar las dependencias
-      if (locationSubscription.current) {
-        locationSubscription.current.remove();
-        locationSubscription.current = null;
+      // Iniciar o detener el seguimiento de ubicación
+      if (rideDetails && (rideDetails.status === 'aceptado' || rideDetails.status === 'en_curso')) {
+          startLocationTracking();
+      } else {
+          // Si el viaje no está 'aceptado' o 'en_curso', detener el tracking
+          if (locationSubscription.current) {
+              locationSubscription.current.remove();
+              locationSubscription.current = null;
+          }
       }
-    };
-  }, [rideDetails, startLocationTracking]); // Se ejecuta cuando rideDetails o startLocationTracking cambian
 
+      return () => {
+        // Limpiar suscripción de ubicación al desmontar o al cambiar las dependencias
+        if (locationSubscription.current) {
+          locationSubscription.current.remove();
+          locationSubscription.current = null;
+        }
+      };
+  }, [rideDetails, startLocationTracking, driverLocation]); // driverLocation se incluye para reajustar el mapa al cambiar la ubicación del conductor.
+
+  // 3. Escuchar eventos de socket
   useEffect(() => {
-    // Escuchar eventos de socket relevantes para el conductor en este viaje
     if (!socket || !rideDetails || !user?.id) return;
 
-    // Si el pasajero cancela el viaje
     socket.on('ride_cancelled_by_passenger', (data) => {
         if (data.rideId === rideDetails._id) {
-            Alert.alert("Viaje Cancelado", "El pasajero ha cancelado el viaje.");
-            setRideDetails(prev => ({ ...prev, status: 'cancelled' })); // Actualiza el estado local
-            navigation.replace("DriverHome");
+          Alert.alert("Viaje Cancelado", "El pasajero ha cancelado el viaje.");
+          setRideDetails(prev => ({ ...prev, status: 'cancelado' }));
+          navigation.replace("DriverHome");
         }
     });
 
-    // En caso de que el backend cambie el estado por alguna razón (ej. timeout, error)
     socket.on('ride_status_update', (data) => {
         if (data.rideId === rideDetails._id && data.status !== rideDetails.status) {
-            console.log(`Estado del viaje ${data.rideId} actualizado a: ${data.status}`);
-            setRideDetails(prev => ({ ...prev, status: data.status }));
-            if (data.status === 'completed' || data.status === 'cancelled') {
-                Alert.alert("Viaje Finalizado", `El viaje ha sido ${data.status}.`);
-                navigation.replace("DriverHome");
-            }
+          console.log(`Estado del viaje ${data.rideId} actualizado a: ${data.status}`);
+          setRideDetails(prev => ({ ...prev, status: data.status }));
+          if (data.status === 'finalizado' || data.status === 'cancelado') {
+              Alert.alert("Viaje Finalizado", `El viaje ha sido ${data.status}.`);
+              navigation.replace("DriverHome");
+          }
         }
     });
 
     return () => {
-      // Limpiar listeners del socket
       socket.off('ride_cancelled_by_passenger');
       socket.off('ride_status_update');
     };
-  }, [socket, rideDetails, user, navigation]);
-
+  }, [socket, rideDetails, user, navigation]); // rideDetails es una dependencia para que los listeners se re-establezcan si el rideDetails._id cambia (aunque no debería en esta pantalla)
 
   // --- Renderizado ---
   if (loading || !rideDetails) {
@@ -297,8 +313,8 @@ const RideInProgressDriverScreen = ({ route, navigation }) => {
 
   // Si rideDetails está presente pero el estado es finalizado/cancelado, ya deberíamos haber navegado.
   // Esto es una salvaguarda.
-  if (rideDetails.status === 'completed' || rideDetails.status === 'cancelled') {
-    return null;
+  if (rideDetails.status === 'finalizado' || rideDetails.status === 'cancelado') {
+    return null; // No renderizar nada si ya se está redirigiendo
   }
 
   const originCoords = rideDetails.origin
@@ -308,7 +324,7 @@ const RideInProgressDriverScreen = ({ route, navigation }) => {
     ? { latitude: rideDetails.destination.latitude, longitude: rideDetails.destination.longitude }
     : null;
 
-  const initialMapRegion = driverLocation || originCoords || { latitude: 0, longitude: 0 };
+  const initialMapRegion = driverLocation || originCoords || { latitude: -16.40904, longitude: -71.53745 }; // Default a un lugar conocido si no hay ubicación
 
   return (
     <View style={styles.container}>
@@ -319,7 +335,8 @@ const RideInProgressDriverScreen = ({ route, navigation }) => {
         Estado: {rideDetails.status?.toUpperCase().replace('_', ' ')}
       </Text>
 
-      {initialMapRegion.latitude !== 0 ? (
+      {/* Condición para renderizar el mapa solo si hay coordenadas iniciales válidas */}
+      {initialMapRegion.latitude !== -16.40904 || initialMapRegion.longitude !== -71.53745 || (driverLocation || originCoords) ? (
         <MapView
           ref={mapRef}
           style={styles.map}
@@ -329,9 +346,9 @@ const RideInProgressDriverScreen = ({ route, navigation }) => {
             latitudeDelta: 0.015,
             longitudeDelta: 0.015,
           }}
-          showsUserLocation={true} // Mostrar la ubicación del conductor
-          followsUserLocation={true} // El mapa sigue al conductor
-          loadingEnabled // Muestra un indicador de carga del mapa
+          showsUserLocation={true}
+          followsUserLocation={true}
+          loadingEnabled
         >
           {/* Marcador del Pasajero (Origen) */}
           {originCoords && (
@@ -356,10 +373,10 @@ const RideInProgressDriverScreen = ({ route, navigation }) => {
             <Marker
               coordinate={driverLocation}
               title="Tu Ubicación"
-              anchor={{ x: 0.5, y: 0.5 }} // Centrar el icono
+              anchor={{ x: 0.5, y: 0.5 }}
             >
               <Image
-                source={require("../assets/car-icon.png")} // Un icono de coche específico para el conductor
+                source={require("../assets/car-icon.png")}
                 style={{
                   width: 40,
                   height: 40,
@@ -377,8 +394,8 @@ const RideInProgressDriverScreen = ({ route, navigation }) => {
             </Marker>
           )}
 
-          {/* Ruta del conductor al origen del pasajero (cuando el viaje está 'accepted') */}
-          {driverLocation && originCoords && rideDetails.status === 'accepted' && Maps_API_KEY && (
+          {/* Ruta del conductor al origen del pasajero (cuando el viaje está 'aceptado') */}
+          {driverLocation && originCoords && rideDetails.status === 'aceptado' && Maps_API_KEY && (
               <MapViewDirections
                   origin={driverLocation}
                   destination={originCoords}
@@ -398,10 +415,10 @@ const RideInProgressDriverScreen = ({ route, navigation }) => {
               />
           )}
 
-          {/* Ruta del origen al destino (cuando el viaje está 'in_progress') */}
-          {originCoords && destinationCoords && rideDetails.status === 'in_progress' && Maps_API_KEY && (
+          {/* Ruta del origen al destino (cuando el viaje está 'en_curso') */}
+          {originCoords && destinationCoords && rideDetails.status === 'en_curso' && Maps_API_KEY && (
               <MapViewDirections
-                  origin={driverLocation || originCoords} // Inicia desde la ubicación actual del conductor o el origen si no hay driverLocation
+                  origin={driverLocation || originCoords}
                   destination={destinationCoords}
                   apikey={Maps_API_KEY}
                   strokeWidth={4}
@@ -428,15 +445,15 @@ const RideInProgressDriverScreen = ({ route, navigation }) => {
 
       <View style={styles.bottomPanel}>
         <Text style={styles.infoText}>Pasajero: {rideDetails.passenger?.name}</Text>
-        {rideDetails.status === 'accepted' && (
+        {rideDetails.status === 'aceptado' && (
             <Text style={styles.statusMessage}>Dirígete a recoger al pasajero.</Text>
         )}
-        {rideDetails.status === 'in_progress' && (
+        {rideDetails.status === 'en_curso' && (
             <Text style={styles.statusMessage}>Viaje en curso hacia el destino.</Text>
         )}
-        
+
         <View style={styles.buttonContainer}>
-          {rideDetails.status === "accepted" && (
+          {rideDetails.status === "aceptado" && (
             <TouchableOpacity
               style={[styles.actionButton, styles.pickupButton]}
               onPress={handlePickedUpPassenger}
@@ -446,7 +463,7 @@ const RideInProgressDriverScreen = ({ route, navigation }) => {
             </TouchableOpacity>
           )}
 
-          {rideDetails.status === "in_progress" && (
+          {rideDetails.status === "en_curso" && (
             <TouchableOpacity
               style={[styles.actionButton, styles.finishButton]}
               onPress={handleFinishRide}
@@ -456,7 +473,7 @@ const RideInProgressDriverScreen = ({ route, navigation }) => {
             </TouchableOpacity>
           )}
 
-          {(rideDetails.status === "accepted" || rideDetails.status === "in_progress") && (
+          {(rideDetails.status === "aceptado" || rideDetails.status === "en_curso") && (
             <TouchableOpacity
               style={[styles.actionButton, styles.cancelButton]}
               onPress={handleCancelRide}
@@ -471,8 +488,8 @@ const RideInProgressDriverScreen = ({ route, navigation }) => {
           style={styles.chatButton}
           onPress={() => navigation.navigate("RideChat", {
             rideId: rideDetails._id,
-            userId: user.id, // ID del conductor
-            userName: user.name, // Nombre del conductor
+            userId: user.id,
+            userName: user.name,
             passengerId: rideDetails.passenger?._id,
             passengerName: rideDetails.passenger?.name,
           })}
@@ -529,7 +546,7 @@ const styles = StyleSheet.create({
   },
   bottomPanel: {
     position: "absolute",
-    bottom: 0, // Ajustar para ocupar todo el ancho
+    bottom: 0,
     left: 0,
     right: 0,
     backgroundColor: '#1a1f2e',
@@ -541,7 +558,7 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.3,
     shadowRadius: 5,
     elevation: 10,
-    alignItems: 'center', // Centrar los elementos horizontalmente
+    alignItems: 'center',
   },
   infoText: {
     fontSize: 16,
@@ -570,20 +587,20 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     paddingHorizontal: 15,
     borderRadius: 10,
-    flex: 1, // Para que ocupen el espacio disponible
+    flex: 1,
     marginHorizontal: 5,
   },
   pickupButton: {
-    backgroundColor: '#00f0ff', // Azul cian
+    backgroundColor: '#00f0ff',
   },
   finishButton: {
-    backgroundColor: '#0cf574', // Verde
+    backgroundColor: '#0cf574',
   },
   cancelButton: {
-    backgroundColor: '#ff4d4d', // Rojo
+    backgroundColor: '#ff4d4d',
   },
   actionButtonText: {
-    color: '#0a0f1c', // Color para los botones de acción
+    color: '#0a0f1c',
     fontSize: 16,
     fontWeight: 'bold',
     marginLeft: 8,
@@ -592,7 +609,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#f5c518', // Amarillo para chat
+    backgroundColor: '#f5c518',
     paddingVertical: 12,
     borderRadius: 10,
     width: '100%',
