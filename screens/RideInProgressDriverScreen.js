@@ -143,6 +143,7 @@ const RideInProgressDriverScreen = ({ route, navigation }) => {
     }
     try {
       const token = user.token;
+      console.log("RIDE IN PORGRESSS: ", token)
       await axios.put(
         `${API_BASE_URL}/rides/status/${rideDetails._id}`,
         { status: newStatus },

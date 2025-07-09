@@ -44,6 +44,7 @@ const DriverHomeScreen = () => {
     setLoadingAvailability(true);
     try {
       const newAvailability = !isAvailable;
+      console.log("dentro del DRIVER HOME SCREEN: ", user.token)
       const response = await axios.put(`${API_BASE_URL}/drivers/${user.id}/availability`, {
         isAvailable: newAvailability,
       }, {
