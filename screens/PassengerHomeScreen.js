@@ -287,7 +287,7 @@ const PassengerHomeScreen = ({ navigation }) => {
         price_offered: priceOffered,
       };
 
-      
+      console.log("Enviando solicitud de viaje:", rideRequest); // Log de depuración
       const response = await axios.post(
         `${API_BASE_URL}/rides`,
         rideRequest,
@@ -296,17 +296,32 @@ const PassengerHomeScreen = ({ navigation }) => {
         }
       );
     
-      setActiveRide(response.data.ride);
+      console.log("Respuesta del backend al solicitar viaje:", response.data); // Log de depuración
+
+      // --- INICIO DE LA CORRECCIÓN CLAVE ---
+      // Flexible para si el objeto del viaje está anidado bajo 'ride' o directamente en 'data'
+      const newActiveRide = response.data.ride || response.data; 
+
+      if (!newActiveRide || !newActiveRide._id) {
+          throw new Error("Respuesta del servidor de viaje inválida o sin _id.");
+      }
+
+      setActiveRide(newActiveRide);
       Alert.alert("Viaje solicitado", "Buscando un conductor para tu viaje...");
+      
+      // Asegúrate de pasar el _id correcto a la siguiente pantalla
+      console.log("Navegando a WaitingForDriverScreen con rideId:", newActiveRide._id); // Log de depuración
       navigation.navigate("WaitingForDriverScreen", {
-        rideId: response.data.ride._id,
+          rideId: newActiveRide._id,
       });
+      // --- FIN DE LA CORRECCIÓN CLAVE ---
+
     } catch (err) {
       console.error(
         "Error al solicitar viaje:",
         err.response?.data?.message || err.message,
-        err.response?.status,
-        err.response?.data
+        "Status:", err.response?.status,
+        "Data:", err.response?.data
       );
       if (err.response?.status === 409) {
         Alert.alert(

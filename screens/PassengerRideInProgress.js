@@ -14,10 +14,8 @@ import { useAuth } from "../context/AuthContext";
 import { useSocket } from "../context/SocketContext";
 import { API_BASE_URL } from "../utils/config";
 import MapViewDirections from "react-native-maps-directions";
-import { Maps_API_KEY } from "../utils/config"; // Asegúrate de tener tu clave API de Google Maps aquí
+import { Maps_API_KEY } from "../utils/config";
 
-// Función para calcular la orientación del vehículo (para la rotación del icono)
-// Asegúrate de que esta función esté definida o importada si se usa en varios lugares
 const calculateBearing = (lat1, lon1, lat2, lon2) => {
   const toRad = (deg) => deg * (Math.PI / 180);
   const toDeg = (rad) => rad * (180 / Math.PI);
@@ -31,17 +29,16 @@ const calculateBearing = (lat1, lon1, lat2, lon2) => {
 };
 
 const PassengerRideInProgress = ({ route, navigation }) => {
-  const { rideId } = route.params; // Se espera que se pase el ID del viaje
-  const { user, isAuthenticated } = useAuth(); // Obtener user, isAuthenticated del AuthContext
-  const { socket } = useSocket(); // Obtener la instancia del socket
-  const mapRef = useRef(null); // Referencia al MapView para controlar la cámara
+  const { rideId } = route.params;
+  const { user, isAuthenticated } = useAuth();
+  const { socket } = useSocket();
+  const mapRef = useRef(null);
 
-  const [rideDetails, setRideDetails] = useState(null); // Almacena todos los detalles del viaje
+  const [rideDetails, setRideDetails] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [driverLocation, setDriverLocation] = useState(null); // Solo la ubicación actual del conductor
-  const [passengerOrigin, setPassengerOrigin] = useState(null); // Ubicación de origen del pasajero (punto de recogida)
+  const [driverLocation, setDriverLocation] = useState(null);
+  const [passengerOrigin, setPassengerOrigin] = useState(null);
 
-  // Función para obtener los detalles completos del viaje
   const fetchRideDetails = useCallback(async () => {
     if (!isAuthenticated || !user?.token || !rideId) {
       Alert.alert(
@@ -49,7 +46,7 @@ const PassengerRideInProgress = ({ route, navigation }) => {
         "No estás autenticado o no hay ID de viaje para seguimiento."
       );
       setLoading(false);
-      navigation.replace("PassengerHomeScreen"); // Redirigir si faltan datos esenciales
+      navigation.replace("PassengerHomeScreen");
       return;
     }
     try {
@@ -59,7 +56,6 @@ const PassengerRideInProgress = ({ route, navigation }) => {
       const rideData = response.data;
       setRideDetails(rideData);
 
-      // Asegurar que las coordenadas del origen del pasajero estén en el formato correcto
       if (rideData.origin?.latitude && rideData.origin?.longitude) {
         setPassengerOrigin({
           latitude: rideData.origin.latitude,
@@ -67,7 +63,7 @@ const PassengerRideInProgress = ({ route, navigation }) => {
         });
       }
 
-      // Establecer ubicación inicial del conductor si ya está disponible en los detalles del viaje
+      // Asegúrate de que driverLocation se establezca si está presente en los detalles iniciales
       if (
         rideData.driverLocation?.coordinates?.latitude &&
         rideData.driverLocation?.coordinates?.longitude
@@ -78,7 +74,6 @@ const PassengerRideInProgress = ({ route, navigation }) => {
         });
       }
 
-      // Opcional: Centrar el mapa en la ubicación del pasajero o conductor al cargar
       if (mapRef.current && (rideData.origin || rideData.driverLocation)) {
         const coordsToFit = [];
         if (rideData.origin?.latitude && rideData.origin?.longitude) {
@@ -113,17 +108,33 @@ const PassengerRideInProgress = ({ route, navigation }) => {
         "Error",
         "No se pudieron cargar los detalles del viaje. Es posible que el viaje haya terminado."
       );
-      navigation.replace("PassengerHomeScreen"); // Regresar al home si el viaje no es válido o hay un error
+      navigation.replace("PassengerHomeScreen");
     } finally {
       setLoading(false);
     }
-  }, [isAuthenticated, user, rideId, navigation]); // Dependencias para useCallback
+  }, [isAuthenticated, user, rideId, navigation]);
 
   useEffect(() => {
-    fetchRideDetails(); // Llamada inicial para obtener los detalles del viaje
+    fetchRideDetails();
+  }, [fetchRideDetails]);
 
-    // No se usa setInterval para fetchDriverLocation aquí, el socket lo manejará.
-  }, [fetchRideDetails]); // Se ejecuta al montar y cuando fetchRideDetails cambia
+  // --- useEffect para manejar la navegación basada en el estado del viaje ---
+  // Este useEffect se ejecuta cuando rideDetails o loading cambian.
+  useEffect(() => {
+    if (!loading && rideDetails) {
+      // Los estados válidos para que el pasajero permanezca en esta pantalla son 'aceptado', 'recogido' o 'en_ruta'.
+      // Si el estado es 'buscando', 'finalizado' o 'cancelado', el pasajero debe salir de esta pantalla.
+      const validStatuses = ["aceptado", "recogido", "en_ruta"]; // ESTOS SON LOS ESTADOS QUE MANTIENEN AL PASAJERO EN LA PANTALLA
+
+      if (!validStatuses.includes(rideDetails.status)) {
+        Alert.alert(
+          "Información del Viaje",
+          "Este viaje ya no está activo o en progreso."
+        );
+        navigation.replace("PassengerHomeScreen");
+      }
+    }
+  }, [rideDetails, loading, navigation]); // Dependencias: rideDetails, loading, navigation.
 
   // Manejo de eventos de Socket.IO para ubicación del conductor y estado del viaje
   useEffect(() => {
@@ -134,58 +145,84 @@ const PassengerRideInProgress = ({ route, navigation }) => {
       return;
     }
 
-    // Escuchar actualizaciones de ubicación del conductor
     socket.on("driver_location_update", (data) => {
-      // Asegurarse de que la actualización sea para el conductor de ESTE viaje
+      // Solo actualiza si el update es para el conductor de este viaje
       if (rideDetails.driver?._id && data.driverId === rideDetails.driver._id) {
-        // console.log("Ubicación de conductor actualizada via socket:", data.coordinates);
-        setDriverLocation({
-          latitude: data.coordinates.latitude,
-          longitude: data.coordinates.longitude,
-        });
+        setDriverLocation((prevLocation) => {
+          // Si tienes prevLocation, puedes usarlo para calcular el bearing
+          const newLocation = {
+            latitude: data.coordinates.latitude,
+            longitude: data.coordinates.longitude,
+            prevLatitude: prevLocation?.latitude, // Guarda la posición anterior para el cálculo del bearing
+            prevLongitude: prevLocation?.longitude,
+          };
 
-        // Opcional: Animar la cámara para seguir al conductor durante el viaje
-        if (mapRef.current) {
-          mapRef.current.animateCamera(
-            {
-              center: {
-                latitude: data.coordinates.latitude,
-                longitude: data.coordinates.longitude,
+          // Anima la cámara para seguir al conductor si está en movimiento
+          if (mapRef.current) {
+            mapRef.current.animateCamera(
+              {
+                center: {
+                  latitude: newLocation.latitude,
+                  longitude: newLocation.longitude,
+                },
+                zoom: 15,
               },
-              zoom: 15, // Mantener un zoom constante
-            },
-            { duration: 1000 }
-          );
-        }
+              { duration: 1000 }
+            );
+          }
+          return newLocation;
+        });
       }
     });
 
-    // Escuchar cambios de estado del viaje (completado, cancelado, etc.)
     socket.on("ride_status_update", (data) => {
       if (data.rideId === rideDetails._id) {
         console.log(
           `Estado del viaje ${data.rideId} actualizado a: ${data.status}`
         );
-        setRideDetails((prev) => ({ ...prev, status: data.status })); // Actualiza el estado local
+        setRideDetails((prev) => ({ ...prev, status: data.status }));
 
+        // Manejo de redirección según el estado
         if (data.status === "finalizado") {
           Alert.alert(
             "Viaje Completado",
             "Tu viaje ha finalizado con éxito. ¡Gracias!"
           );
-          navigation.replace("PassengerHomeScreen"); // Volver a PassengerHomeScreen
+          navigation.replace("PassengerHomeScreen");
         } else if (data.status === "cancelado") {
           Alert.alert(
             "Viaje Cancelado",
             "Tu viaje ha sido cancelado por el conductor."
           );
-          navigation.replace("PassengerHomeScreen"); // Volver a PassengerHomeScreen
+          navigation.replace("PassengerHomeScreen");
+        } else if (data.status === "recogido") {
+          // Mensaje específico para el estado 'recogido' si lo deseas
+          Alert.alert(
+            "¡Pasajero Recogido!",
+            "El conductor te ha recogido. Tu viaje está a punto de empezar."
+          );
+          // Puedes decidir si quieres un zoom diferente o alguna otra acción en el mapa aquí.
+        } else if (data.status === "en_ruta") {
+          // Mensaje específico para el estado 'en_ruta'
+          Alert.alert(
+            "Viaje en Curso",
+            "El conductor se dirige a tu destino."
+          );
+          // Puedes ajustar el mapa para mostrar la ruta completa del origen al destino aquí.
+          if (mapRef.current && rideDetails.origin && rideDetails.destination) {
+            mapRef.current.fitToCoordinates(
+              [rideDetails.origin, rideDetails.destination],
+              {
+                edgePadding: { top: 100, right: 50, bottom: 50, left: 50 },
+                animated: true,
+              }
+            );
+          }
         }
       }
     });
 
     return () => {
-      // Limpiar listeners al desmontar o al cambiar las dependencias
       socket.off("driver_location_update");
       socket.off("ride_status_update");
     };
@@ -203,20 +240,6 @@ const PassengerRideInProgress = ({ route, navigation }) => {
     );
   }
 
-  // Redirigir si el viaje ya no es 'accepted' o 'in_progress'
-  if (
-    rideDetails.status !== "finalizado" &&
-    rideDetails.status !== "en_curso"
-  ) {
-    Alert.alert(
-      "Información del Viaje",
-      "Este viaje ya no está activo o en progreso."
-    );
-    navigation.replace("PassengerHomeScreen");
-    return null; // No renderizar nada
-  }
-
-  // Define la región inicial del mapa de forma más robusta
   const initialMapRegion = {
     latitude: driverLocation?.latitude || passengerOrigin?.latitude || 0,
     longitude: driverLocation?.longitude || passengerOrigin?.longitude || 0,
@@ -242,23 +265,28 @@ const PassengerRideInProgress = ({ route, navigation }) => {
           </Text>
         </>
       )}
+      {/* Mensajes de estado actualizados */}
       {rideDetails.status === "aceptado" && (
         <Text style={styles.driverInfo}>
           El conductor se dirige a tu ubicación de recogida.
         </Text>
       )}
-      {rideDetails.status === "en_curso" && (
+      {rideDetails.status === "recogido" && (
+        <Text style={styles.driverInfo}>
+          ¡El conductor te ha recogido! Viaje a punto de iniciar hacia tu destino.
+        </Text>
+      )}
+      {rideDetails.status === "en_ruta" && (
         <Text style={styles.driverInfo}>Viaje en curso hacia tu destino.</Text>
       )}
 
-      {initialMapRegion.latitude !== 0 ? ( // Asegúrate de que las coordenadas no sean 0,0 por defecto
+      {initialMapRegion.latitude !== 0 ? (
         <MapView
           ref={mapRef}
           style={styles.map}
           initialRegion={initialMapRegion}
-          showsUserLocation={true} // Mostrar la ubicación actual del dispositivo del pasajero
+          showsUserLocation={true}
         >
-          {/* Marcador del pasajero (ubicación de recogida del viaje) */}
           {passengerOrigin && (
             <Marker
               coordinate={passengerOrigin}
@@ -267,33 +295,6 @@ const PassengerRideInProgress = ({ route, navigation }) => {
             />
           )}
 
-          {/* Marcador del conductor */}
-          {driverLocation && (
-            <Marker coordinate={driverLocation} title="Tu Conductor">
-              <Image
-                source={require("../assets/car-icon.png")} // Asegúrate de tener este icono
-                style={{
-                  width: 40,
-                  height: 40,
-                  // Calcular la rotación basándose en el movimiento del conductor
-                  transform: [
-                    {
-                      rotate: `${calculateBearing(
-                        driverLocation.prevLatitude || driverLocation.latitude, // Usa la latitud anterior si está disponible
-                        driverLocation.prevLongitude ||
-                          driverLocation.longitude, // Usa la longitud anterior si está disponible
-                        driverLocation.latitude,
-                        driverLocation.longitude
-                      )}deg`,
-                    },
-                  ],
-                }}
-                resizeMode="contain"
-              />
-            </Marker>
-          )}
-
-          {/* Marcador del destino (si el viaje tiene uno) */}
           {rideDetails.destination?.latitude &&
             rideDetails.destination?.longitude && (
               <Marker
@@ -306,7 +307,30 @@ const PassengerRideInProgress = ({ route, navigation }) => {
               />
             )}
 
-          {/* Ruta del conductor a la ubicación de recogida del pasajero (cuando el viaje está 'accepted') */}
+          {driverLocation && (
+            <Marker coordinate={driverLocation} title="Tu Conductor">
+              <Image
+                source={require("../assets/car-icon.png")}
+                style={{
+                  width: 40,
+                  height: 40,
+                  transform: [
+                    {
+                      rotate: `${calculateBearing(
+                        driverLocation.prevLatitude || driverLocation.latitude, // Usa prevLatitude si existe para el bearing
+                        driverLocation.prevLongitude || driverLocation.longitude,
+                        driverLocation.latitude,
+                        driverLocation.longitude
+                      )}deg`,
+                    },
+                  ],
+                }}
+                resizeMode="contain"
+              />
+            </Marker>
+          )}
+
+          {/* Ruta del conductor al pasajero (cuando el viaje está 'aceptado') */}
           {rideDetails.status === "aceptado" &&
             driverLocation &&
             passengerOrigin &&
@@ -319,7 +343,6 @@ const PassengerRideInProgress = ({ route, navigation }) => {
                 strokeColor="blue"
                 optimizeWaypoints={true}
                 onReady={(result) => {
-                  // Opcional: Ajustar el mapa a la ruta completa del conductor al pasajero
                   if (mapRef.current) {
                     mapRef.current.fitToCoordinates(result.coordinates, {
                       edgePadding: {
@@ -338,8 +361,8 @@ const PassengerRideInProgress = ({ route, navigation }) => {
               />
             )}
 
-          {/* Ruta del origen al destino del viaje (cuando el viaje está 'in_progress') */}
-          {rideDetails.status === "en_curso" &&
+          {/* Ruta del origen al destino del viaje (cuando el viaje está 'recogido' o 'en_ruta') */}
+          {(rideDetails.status === "recogido" || rideDetails.status === "en_ruta") && // <-- ¡¡¡CAMBIO AQUÍ!!!
             rideDetails.origin?.latitude &&
             rideDetails.destination?.latitude &&
             Maps_API_KEY && (
@@ -354,10 +377,16 @@ const PassengerRideInProgress = ({ route, navigation }) => {
                 }}
                 apikey={Maps_API_KEY}
                 strokeWidth={4}
-                strokeColor="#0cf574" // Color diferente para la ruta del viaje
+                strokeColor="#0cf574"
                 optimizeWaypoints={true}
                 onReady={(result) => {
-                  // Puedes ajustar el mapa para que muestre toda la ruta una vez.
+                  // Puedes ajustar el mapa para que muestre toda la ruta una vez que el viaje ha iniciado
+                  if (mapRef.current) {
+                    mapRef.current.fitToCoordinates(result.coordinates, {
+                      edgePadding: { top: 100, right: 50, bottom: 50, left: 50 },
+                      animated: true,
+                    });
+                  }
                 }}
                 onError={(error) =>
                   console.log("Error al trazar ruta del viaje:", error)
@@ -381,7 +410,6 @@ const PassengerRideInProgress = ({ route, navigation }) => {
               rideId: rideDetails._id,
               userId: user.id,
               userName: user.name,
-              // También puedes pasar el ID y nombre del conductor si quieres
               driverId: rideDetails.driver?._id,
               driverName: rideDetails.driver?.name,
             })
@@ -389,7 +417,6 @@ const PassengerRideInProgress = ({ route, navigation }) => {
         >
           <Text style={styles.chatButtonText}>Abrir Chat</Text>
         </TouchableOpacity>
-        {/* Botón para cancelar el viaje, visible solo si el estado lo permite */}
         {rideDetails.status !== "finalizado" &&
           rideDetails.status !== "cancelado" && (
             <TouchableOpacity
@@ -404,7 +431,6 @@ const PassengerRideInProgress = ({ route, navigation }) => {
                       text: "Sí",
                       onPress: async () => {
                         try {
-                          // Llamada a la API para cancelar el viaje
                           await axios.post(
                             `${API_BASE_URL}/api/rides/${rideId}/cancel`,
                             {},
@@ -414,7 +440,6 @@ const PassengerRideInProgress = ({ route, navigation }) => {
                               },
                             }
                           );
-                          // Emitir evento de socket para notificar al conductor
                           if (socket && rideDetails.driver?._id) {
                             socket.emit("ride_cancelled_by_passenger", {
                               rideId: rideDetails._id,
@@ -425,7 +450,7 @@ const PassengerRideInProgress = ({ route, navigation }) => {
                             "Viaje Cancelado",
                             "Tu viaje ha sido cancelado."
                           );
-                          navigation.replace("PassengerHomeScreen"); // Volver a la pantalla principal
+                          navigation.replace("PassengerHomeScreen");
                         } catch (err) {
                           console.error(
                             "Error al cancelar viaje:",
@@ -452,7 +477,7 @@ export default PassengerRideInProgress;
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#0a0f1c", // Fondo oscuro para coincidir con el tema
+    backgroundColor: "#0a0f1c",
   },
   centeredContainer: {
     flex: 1,
@@ -471,11 +496,11 @@ const styles = StyleSheet.create({
     color: "#fff",
     textAlign: "center",
     paddingVertical: 15,
-    backgroundColor: "#1a1f2e", // Un color de fondo para la barra superior
+    backgroundColor: "#1a1f2e",
   },
   statusText: {
     fontSize: 18,
-    color: "#00f0ff", // Color de acento
+    color: "#00f0ff",
     textAlign: "center",
     paddingBottom: 5,
   },
@@ -486,7 +511,7 @@ const styles = StyleSheet.create({
     marginBottom: 2,
   },
   map: {
-    flex: 1, // El mapa debe ocupar el espacio restante
+    flex: 1,
   },
   bottomContainer: {
     flexDirection: "row",
@@ -494,14 +519,14 @@ const styles = StyleSheet.create({
     padding: 15,
     backgroundColor: "#1a1f2e",
     borderTopWidth: 1,
-    borderColor: "#00f0ff", // Borde superior para separar del mapa
+    borderColor: "#00f0ff",
   },
   chatButton: {
-    backgroundColor: "#00f0ff", // Un color distintivo para el chat
+    backgroundColor: "#00f0ff",
     paddingVertical: 12,
     paddingHorizontal: 20,
     borderRadius: 10,
-    flex: 1, // Para que ocupe espacio equitativamente
+    flex: 1,
     marginRight: 10,
     alignItems: "center",
   },
@@ -511,7 +536,7 @@ const styles = StyleSheet.create({
     fontWeight: "bold",
   },
   cancelButton: {
-    backgroundColor: "#ff4d4d", // Rojo para cancelar
+    backgroundColor: "#ff4d4d",
     paddingVertical: 12,
     paddingHorizontal: 20,
     borderRadius: 10,

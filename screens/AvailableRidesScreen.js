@@ -83,6 +83,8 @@ const AvailableRidesScreen = ({ navigation }) => {
     try {
       const token = user?.token || await AsyncStorage.getItem("token");
       console.log("que contiene rideID: ", rideId)
+      console.log("que contiene token: ", token)
+      
       if (!token) {
         Alert.alert("Error de autenticación", "No se encontró el token de usuario.");
         navigation.replace('Login');
