@@ -5,14 +5,21 @@
       "resizeMode": "contain",
       "backgroundColor": "#0a0f1c"
     },
-    "plugins": [
-      "expo-font"
-    ],
+    "plugins": ["expo-font"],
+
+    "extra": {
+      "googleMapsApiKey": "AIzaSyB0vm0QYbYcMmj7IDSUSH46vkVEWMJ-M90"
+    },
+
     "ios": {
       "supportsTablet": true,
       "infoPlist": {
         "NSLocationWhenInUseUsageDescription": "Esta aplicación necesita tu ubicación para mostrarte en el mapa y encontrar viajes.",
         "NSLocationAlwaysAndWhenInUseUsageDescription": "Esta aplicación necesita tu ubicación en segundo plano para que los pasajeros puedan seguir tu viaje y para recibir solicitudes cuando la app esté en segundo plano."
+      },
+      "bundleIdentifier": "com.rogu.youtripdriver",
+      "config": {
+        "googleMapsApiKey": "AIzaSyB0vm0QYbYcMmj7IDSUSH46vkVEWMJ-M90"
       }
     },
     "android": {
@@ -23,8 +30,18 @@
       "permissions": [
         "android.permission.ACCESS_FINE_LOCATION",
         "android.permission.ACCESS_COARSE_LOCATION",
-        "android.permission.ACCESS_BACKGROUND_LOCATION" 
-      ]
-    }
+        "android.permission.ACCESS_BACKGROUND_LOCATION"
+      ],
+      "package": "com.rogu.youtripdriver",
+      "config": {
+        "googleMaps": {
+          "apiKey": "AIzaSyB0vm0QYbYcMmj7IDSUSH46vkVEWMJ-M90"
+        }
+      }
+    },
+    "web": {
+      "favicon": "./assets/favicon.png"
+    },
+    "owner": "your-expo-username"
   }
 }
