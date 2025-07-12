@@ -21,7 +21,7 @@ const LoginScreen = ({ navigation }) => {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
-  const { login } = useAuth(); // Correcto: desestructuramos 'login'
+  const { login } = useAuth();
 
   const handleLogin = async () => {
     if (!email.trim() || !password.trim()) {
@@ -44,34 +44,30 @@ const LoginScreen = ({ navigation }) => {
         return;
       }
 
-      // *** CORRECCIÓN CLAVE AQUÍ: Combina el token y los datos del usuario en un solo objeto ***
+      // Combina el token y los datos del usuario en un solo objeto para el contexto
       const userDataToSave = {
         ...res.data.user, // Desestructura los datos del usuario (_id, name, email, role, etc.)
         token: res.data.token, // Añade el token al mismo objeto
       };
-      console.log("userDataToSave: ", userDataToSave)
-      // Llamada a la función login del contexto con un único objeto
-      await login(userDataToSave); 
+      console.log("userDataToSave: ", userDataToSave);
 
-      // ************** IMPORTANTE **************
-      // Una vez que `login(userDataToSave)` se llama, el estado en `AuthContext`
-      // (`user` y `isAuthenticated`) se actualiza.
-      // Tu `App.js` con el `RootNavigator` (que usa `useAuth()`)
-      // detectará este cambio y *automáticamente* navegará a la pantalla correcta
-      // (`PassengerHome` o `DriverHome`) según el rol del usuario.
-      // Por lo tanto, no necesitas las siguientes líneas de `navigation.replace`.
-      // Si las mantienes, podrías tener un parpadeo o una navegación redundante.
-      // Te recomiendo eliminarlas o comentarlas si el flujo automático funciona.
+      // Llama a la función login del contexto.
+      // Esto actualizará el estado de autenticación y el RootNavigator en App.js
+      // se encargará automáticamente de la navegación basada en el rol.
+      await login(userDataToSave);
+
+      // --- IMPORTANTE: Las siguientes líneas de navegación son redundantes si tu RootNavigator
+      // --- maneja la navegación basada en el estado de autenticación y el rol.
+      // --- Se recomienda NO usarlas aquí para evitar parpadeos o navegación duplicada.
       /*
       if (res.data.user.role === "pasajero") {
         navigation.replace("PassengerHomeScreen");
       } else if (res.data.user.role === "conductor") {
         navigation.replace("DriverHome");
       }
-      */
-      // Si aún quieres forzar una navegación para refrescar el stack,
-      // puedes navegar a la raíz que re-evalúa el RootNavigator:
+      // O si quieres forzar un reseteo y re-evaluación del RootNavigator:
       // navigation.replace("Root"); 
+      */
 
     } catch (err) {
       console.error("Error de login:", err.response?.data || err.message);
