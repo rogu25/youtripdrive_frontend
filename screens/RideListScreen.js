@@ -62,14 +62,14 @@ const RideListScreen = ({ navigation }) => {
                 keyExtractor={(item) => item._id}
                 renderItem={({ item }) => (
                     <View style={styles.rideItem}>
-                        <Text style={styles.status}>{item.status.toUpperCase()}</Text>
+                        <Text style={styles.status}>{ item.status.toUpperCase() }</Text>
                         <View style={styles.row}>
                             <MaterialIcons name="location-on" size={20} color="red" />
-                            <Text style={styles.infoText}>Origen: {item.origin}</Text>
+                            <Text style={styles.infoText}>Origen: { item.origin }</Text>
                         </View>
                         <View style={styles.row}>
                             <MaterialIcons name="flag" size={20} color="green" />
-                            <Text style={styles.infoText}>Destino: {item.destination}</Text>
+                            <Text style={styles.infoText}>Destino: { item.destination }</Text>
                         </View>
                         <Button title="Abrir chat" onPress={() => setActiveRide(item)} />
                     </View>

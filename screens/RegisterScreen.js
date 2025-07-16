@@ -36,20 +36,29 @@ const RegisterScreen = ({ navigation }) => {
     // Validaciones básicas de campos obligatorios
     if (!name.trim() || !email.trim() || !password.trim()) {
       // Mensajes de alerta siempre deben ser strings
-      Alert.alert("Error de registro", "Por favor, completa todos los campos básicos: Nombre, Correo y Contraseña.");
+      Alert.alert(
+        "Error de registro",
+        "Por favor, completa todos los campos básicos: Nombre, Correo y Contraseña."
+      );
       return;
     }
 
     // Validación de formato de email (simple)
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
     if (!emailRegex.test(email.trim())) {
-      Alert.alert("Error de registro", "Por favor, ingresa un formato de correo electrónico válido.");
+      Alert.alert(
+        "Error de registro",
+        "Por favor, ingresa un formato de correo electrónico válido."
+      );
       return;
     }
 
     // Validación de longitud de contraseña (ejemplo)
     if (password.length < 6) {
-      Alert.alert("Error de registro", "La contraseña debe tener al menos 6 caracteres.");
+      Alert.alert(
+        "Error de registro",
+        "La contraseña debe tener al menos 6 caracteres."
+      );
       return;
     }
 
@@ -70,7 +79,10 @@ const RegisterScreen = ({ navigation }) => {
         !vehicle.color.trim() ||
         !vehicle.year.trim()
       ) {
-        Alert.alert("Error de registro", "Como conductor, por favor completa todos los datos del vehículo y personales (DNI, Licencia).");
+        Alert.alert(
+          "Error de registro",
+          "Como conductor, por favor completa todos los datos del vehículo y personales (DNI, Licencia)."
+        );
         return;
       }
 
@@ -79,13 +91,20 @@ const RegisterScreen = ({ navigation }) => {
 
       // Convertir año a número y validarlo
       const parsedYear = parseInt(vehicle.year, 10); // Base 10 para parseInt
-      if (isNaN(parsedYear) || vehicle.year.trim().length !== 4) { // Verifica también longitud original del string
-        Alert.alert("Error de registro", "El año del vehículo debe ser un número de 4 dígitos válido.");
+      if (isNaN(parsedYear) || vehicle.year.trim().length !== 4) {
+        // Verifica también longitud original del string
+        Alert.alert(
+          "Error de registro",
+          "El año del vehículo debe ser un número de 4 dígitos válido."
+        );
         return;
       }
       const currentYear = new Date().getFullYear();
       if (parsedYear < 1900 || parsedYear > currentYear + 1) {
-        Alert.alert("Error de registro", `El año del vehículo debe estar entre 1900 y ${currentYear + 1}.`);
+        Alert.alert(
+          "Error de registro",
+          `El año del vehículo debe estar entre 1900 y ${currentYear + 1}.`
+        );
         return;
       }
 
@@ -102,20 +121,26 @@ const RegisterScreen = ({ navigation }) => {
       console.log("Payload enviado:", payload);
       const res = await axios.post(`${API_BASE_URL}/auth/register`, payload);
 
-      Alert.alert("Registro Exitoso", "Tu cuenta ha sido creada. Ahora puedes iniciar sesión.");
+      Alert.alert(
+        "Registro Exitoso",
+        "Tu cuenta ha sido creada. Ahora puedes iniciar sesión."
+      );
       navigation.replace("Login");
     } catch (err) {
       console.error("Error de registro:", err.response?.data || err.message);
-      let errorMessage = "Ocurrió un error inesperado. Por favor, intenta de nuevo.";
+      let errorMessage =
+        "Ocurrió un error inesperado. Por favor, intenta de nuevo.";
 
       if (err.response) {
         if (err.response.status === 400 && err.response.data?.message) {
           errorMessage = err.response.data.message;
         } else if (err.response.status === 500) {
-          errorMessage = "Error del servidor. Por favor, intenta de nuevo más tarde.";
+          errorMessage =
+            "Error del servidor. Por favor, intenta de nuevo más tarde.";
         }
       } else if (err.request) {
-        errorMessage = "No se pudo conectar con el servidor. Verifica tu conexión a internet o intenta más tarde.";
+        errorMessage =
+          "No se pudo conectar con el servidor. Verifica tu conexión a internet o intenta más tarde.";
       }
       Alert.alert("Error de Registro", errorMessage);
     } finally {
@@ -184,7 +209,7 @@ const RegisterScreen = ({ navigation }) => {
               placeholderTextColor="#bbb"
               keyboardType="numeric"
               value={dni}
-              onChangeText={(text) => setDni(text.replace(/[^0-9]/g, ''))} // Solo números
+              onChangeText={(text) => setDni(text.replace(/[^0-9]/g, ""))} // Solo números
               maxLength={8} // Asumiendo DNI de 8 dígitos en Perú
               editable={!loading}
             />
@@ -226,7 +251,9 @@ const RegisterScreen = ({ navigation }) => {
               placeholderTextColor="#bbb"
               keyboardType="numeric"
               value={vehicle.year}
-              onChangeText={(text) => setVehicle({ ...vehicle, year: text.replace(/[^0-9]/g, "") })} // Solo números
+              onChangeText={(text) =>
+                setVehicle({ ...vehicle, year: text.replace(/[^0-9]/g, "") })
+              } // Solo números
               maxLength={4} // Máximo 4 dígitos para el año
               editable={!loading}
             />
@@ -248,7 +275,10 @@ const RegisterScreen = ({ navigation }) => {
           </LinearGradient>
         </TouchableOpacity>
 
-        <TouchableOpacity onPress={() => navigation.navigate("Login")} disabled={loading}>
+        <TouchableOpacity
+          onPress={() => navigation.navigate("Login")}
+          disabled={loading}
+        >
           <Text style={styles.link}>¿Ya tienes cuenta? Inicia Sesión</Text>
         </TouchableOpacity>
       </ScrollView>

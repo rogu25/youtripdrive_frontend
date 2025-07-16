@@ -15,7 +15,7 @@ const SplashScreenAnimated = ({ navigation }) => {
       );
       await sound.playAsync();
       // Opcional: Asegúrate de descargar el sonido para liberar memoria si es necesario
-      // sound.unloadAsync(); 
+      // sound.unloadAsync();
     } catch (error) {
       console.warn("Error al reproducir el sonido de intro:", error);
       // No detengas la aplicación si el sonido falla
@@ -52,7 +52,7 @@ const SplashScreenAnimated = ({ navigation }) => {
       await SplashScreen.hideAsync(); // oculta la splash nativa de Expo
       // *** CAMBIO CRÍTICO AQUÍ ***
       // Siempre navega a 'Root'. RootNavigator contendrá la lógica condicional.
-      navigation.replace("Root"); 
+      navigation.replace("Root");
     }, 2800); // Ajusta la duración total si es necesario para que coincida con tus animaciones
 
     return () => clearTimeout(timeout); // Limpia el temporizador al desmontar
@@ -71,10 +71,7 @@ const SplashScreenAnimated = ({ navigation }) => {
           styles.logo,
           {
             opacity: fadeAnim,
-            transform: [
-              { scale: scaleAnim },
-              { rotate: rotateInterpolate },
-            ],
+            transform: [{ scale: scaleAnim }, { rotate: rotateInterpolate }],
           },
         ]}
       />

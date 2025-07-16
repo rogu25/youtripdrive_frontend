@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from "react";
 import {
   View,
   Text,
@@ -11,19 +11,19 @@ import {
   ActivityIndicator,
   Keyboard,
   Image,
-} from 'react-native';
-import MapView, { Marker, Polyline } from 'react-native-maps';
-import * as Location from 'expo-location';
-import { useAuth } from '../context/AuthContext';
-import { useSocket } from '../context/SocketContext';
-import { API_BASE_URL } from '../utils/config';
-import axios from 'axios';
-import { useNavigation } from '@react-navigation/native';
-import Constants from 'expo-constants'; // Importar Constants
+} from "react-native";
+import MapView, { Marker, Polyline } from "react-native-maps";
+import * as Location from "expo-location";
+import { useAuth } from "../context/AuthContext";
+import { useSocket } from "../context/SocketContext";
+import { API_BASE_URL, Maps_API_KEY } from "../utils/config"; // Maps_API_KEY ya no se usa para rutas
+import axios from "axios";
+import { useNavigation } from "@react-navigation/native";
+import Constants from "expo-constants";
 import { LinearGradient } from "expo-linear-gradient";
 
 // Constantes de dimensiones
-const { width, height } = Dimensions.get('window');
+const { width, height } = Dimensions.get("window");
 const ASPECT_RATIO = width / height;
 const LATITUDE_DELTA = 0.0922;
 const LONGITUDE_DELTA = LATITUDE_DELTA * ASPECT_RATIO;
@@ -42,7 +42,13 @@ const calculateBearing = (lat1, lon1, lat2, lon2) => {
 };
 
 // Función auxiliar para decodificar polilíneas
+// Se hace un pequeño ajuste para manejar 'null' o cadenas vacías.
 const decodePolyline = (encoded) => {
+  if (!encoded) { // Si es null o indefinido, o una cadena vacía
+    console.warn("Intentando decodificar una polilínea nula o vacía.");
+    return []; // Retorna un array vacío para evitar errores
+  }
+
   let points = [];
   let index = 0;
   let lat = 0;
@@ -57,7 +63,7 @@ const decodePolyline = (encoded) => {
       result |= (b & 0x1f) << shift;
       shift += 5;
     } while (b >= 0x20);
-    let dlat = ((result & 1) ? ~(result >> 1) : (result >> 1));
+    let dlat = result & 1 ? ~(result >> 1) : result >> 1;
     lat += dlat;
 
     shift = 0;
@@ -67,14 +73,13 @@ const decodePolyline = (encoded) => {
       result |= (b & 0x1f) << shift;
       shift += 5;
     } while (b >= 0x20);
-    let dlng = ((result & 1) ? ~(result >> 1) : (result >> 1));
+    let dlng = result & 1 ? ~(result >> 1) : result >> 1;
     lng += dlng;
 
-    points.push({ latitude: (lat / 1e5), longitude: (lng / 1e5) });
+    points.push({ latitude: lat / 1e5, longitude: lng / 1e5 });
   }
   return points;
 };
-
 
 const PassengerHomeScreen = () => {
   const { user, logout, isAuthenticated } = useAuth();
@@ -87,10 +92,11 @@ const PassengerHomeScreen = () => {
   const [loadingLocation, setLoadingLocation] = useState(true);
   const [locationErrorMsg, setLocationErrorMsg] = useState(null);
 
-  const [destination, setDestination] = useState('');
+  const [destination, setDestination] = useState("");
   const [destinationCoords, setDestinationCoords] = useState(null);
-  const [isRequestingRidePanelVisible, setIsRequestingRidePanelVisible] = useState(false);
-  const [rideEstimate, setRideEstimate] = useState(null);
+  const [isRequestingRidePanelVisible, setIsRequestingRidePanelVisible] =
+    useState(false);
+  const [rideEstimate, setRideEstimate] = useState(null); // Contendrá fare, duration, distance, polyline
   const [isSearchingDestination, setIsSearchingDestination] = useState(false);
   const [pickupLocation, setPickupLocation] = useState(null);
   const [routePolyline, setRoutePolyline] = useState([]);
@@ -99,15 +105,15 @@ const PassengerHomeScreen = () => {
   const [rideId, setRideId] = useState(null);
   const [activeRide, setActiveRide] = useState(null);
 
-  // --- OBTENER CLAVE DE GOOGLE API DE MANERA SEGURA ---
-  // Preferir Constants.expoConfig.extra si es un SDK reciente
-  // Si no, usar Constants.manifest.extra
-  const Maps_API_KEY = Constants.expoConfig?.extra?.googleMapsApiKey || Constants.manifest?.extra?.googleMapsApiKey;
-
+  // NOTA: Este useEffect sobre Maps_API_KEY sigue siendo útil para
+  // las funcionalidades de búsqueda de destino (geocodificación)
+  // que sí usan la API de Google Maps.
   useEffect(() => {
     // Validar si la clave API se cargó correctamente
     if (!Maps_API_KEY) {
-      console.warn("Advertencia: La clave de Google Maps API no se cargó. Verifica tu app.json y la reconstrucción de la app.");
+      console.warn(
+        "Advertencia: La clave de Google Maps API no se cargó. Verifica tu app.json y la reconstrucción de la app."
+      );
       Alert.alert(
         "Error de Configuración",
         "La clave de Google Maps API no se encontró. Algunas funcionalidades (búsqueda de destino, rutas) no funcionarán. Asegúrate de configurarla en app.json y reconstruir la aplicación."
@@ -115,14 +121,16 @@ const PassengerHomeScreen = () => {
     }
   }, [Maps_API_KEY]);
 
-
   // --- Efecto para obtener la ubicación actual del usuario ---
   useEffect(() => {
     const getLocation = async () => {
       let { status } = await Location.requestForegroundPermissionsAsync();
-      if (status !== 'granted') {
-        setLocationErrorMsg('Permiso para acceder a la ubicación denegado.');
-        Alert.alert('Permiso de Ubicación', 'Por favor, concede permiso de ubicación para usar la aplicación.');
+      if (status !== "granted") {
+        setLocationErrorMsg("Permiso para acceder a la ubicación denegado.");
+        Alert.alert(
+          "Permiso de Ubicación",
+          "Por favor, concede permiso de ubicación para usar la aplicación."
+        );
         setLoadingLocation(false);
         return;
       }
@@ -133,12 +141,15 @@ const PassengerHomeScreen = () => {
       setCurrentLocation(location.coords);
       setPickupLocation(location.coords);
       setLoadingLocation(false);
-      mapRef.current?.animateToRegion({
-        latitude: location.coords.latitude,
-        longitude: location.coords.longitude,
-        latitudeDelta: LATITUDE_DELTA,
-        longitudeDelta: LONGITUDE_DELTA,
-      }, 1000);
+      mapRef.current?.animateToRegion(
+        {
+          latitude: location.coords.latitude,
+          longitude: location.coords.longitude,
+          latitudeDelta: LATITUDE_DELTA,
+          longitudeDelta: LONGITUDE_DELTA,
+        },
+        1000
+      );
     };
 
     getLocation();
@@ -147,29 +158,33 @@ const PassengerHomeScreen = () => {
   // --- Efecto para manejar eventos de Socket.IO ---
   useEffect(() => {
     if (!socket || !isAuthenticated || !user?.id) {
-      console.log('Socket no listo o usuario no autenticado para eventos de pasajero.');
+      console.log(
+        "Socket no listo o usuario no autenticado para eventos de pasajero."
+      );
       return;
     }
 
-    socket.emit('join_room', user.id);
+    socket.emit("join_room", user.id);
     console.log(`[Socket] Pasajero ${user.id} se unió a su sala.`);
 
-    socket.on('connect', () => {
-      console.log('✅ Socket.IO conectado para pasajero:', socket.id);
-      socket.emit('join_room', user.id);
+    socket.on("connect", () => {
+      console.log("✅ Socket.IO conectado para pasajero:", socket.id);
+      socket.emit("join_room", user.id);
     });
 
-    socket.on('disconnect', () => {
-      console.log('❌ Socket.IO desconectado para pasajero');
+    socket.on("disconnect", () => {
+      console.log("❌ Socket.IO desconectado para pasajero");
     });
 
-    socket.on('connect_error', (err) => {
-      console.error('❌ Error de conexión de Socket.IO:', err.message);
+    socket.on("connect_error", (err) => {
+      console.error("❌ Error de conexión de Socket.IO:", err.message);
     });
 
-    socket.on('driverLocationUpdateForPassengers', (data) => {
+    socket.on("driverLocationUpdateForPassengers", (data) => {
       setDrivers((prevDrivers) => {
-        const existingDriverIndex = prevDrivers.findIndex((d) => d._id === data.driverId);
+        const existingDriverIndex = prevDrivers.findIndex(
+          (d) => d._id === data.driverId
+        );
         let newRotation = 0;
         let updatedDriver;
 
@@ -195,7 +210,7 @@ const PassengerHomeScreen = () => {
         } else {
           updatedDriver = {
             _id: data.driverId,
-            name: data.driverName || 'Conductor',
+            name: data.driverName || "Conductor",
             coordinates: { latitude: data.latitude, longitude: data.longitude },
             rotation: 0,
             isAvailable: true,
@@ -205,43 +220,64 @@ const PassengerHomeScreen = () => {
       });
     });
 
-    socket.on('driverUnavailable', (data) => {
-      console.log(`Conductor ${data.driverId} no disponible. Removiendo del mapa.`);
-      setDrivers((prevDrivers) => prevDrivers.filter((d) => d._id !== data.driverId));
+    socket.on("driverUnavailable", (data) => {
+      console.log(
+        `Conductor ${data.driverId} no disponible. Removiendo del mapa.`
+      );
+      setDrivers((prevDrivers) =>
+        prevDrivers.filter((d) => d._id !== data.driverId)
+      );
     });
 
-    socket.on('rideRequestAccepted', (data) => {
-      console.log('¡Viaje aceptado!', data);
+    socket.on("rideRequestAccepted", (data) => {
+      console.log("¡Viaje aceptado!", data);
       setSearchingDriver(false);
       setIsRideRequested(false);
       setActiveRide(data.ride);
       Alert.alert(
-        '¡Viaje Aceptado!',
+        "¡Viaje Aceptado!",
         `El conductor ${data.driverData.name} ha aceptado tu viaje.`,
-        [{ text: 'OK', onPress: () => navigation.navigate('PassengerRideInProgress', { rideId: data.ride._id, driverData: data.driverData }) }]
+        [
+          {
+            text: "OK",
+            onPress: () =>
+              navigation.navigate("PassengerRideInProgress", {
+                rideId: data.ride._id,
+                driverData: data.driverData,
+              }),
+          },
+        ]
       );
     });
 
-    socket.on('noDriverFound', () => {
-      console.log('No se encontraron conductores.');
+    socket.on("noDriverFound", () => {
+      console.log("No se encontraron conductores.");
       setSearchingDriver(false);
       setIsRideRequested(false);
       setActiveRide(null);
-      Alert.alert('Lo sentimos', 'No se encontraron conductores disponibles cerca en este momento.');
+      Alert.alert(
+        "Lo sentimos",
+        "No se encontraron conductores disponibles cerca en este momento."
+      );
       setIsRequestingRidePanelVisible(true);
       setRideEstimate(null);
-      setDestination('');
+      setDestination("");
       setDestinationCoords(null);
       setRoutePolyline([]);
       setRideId(null);
     });
 
-    socket.on('rideRequestCancelledByDriver', (data) => {
-      console.log('Viaje cancelado por el conductor:', data);
+    socket.on("rideRequestCancelledByDriver", (data) => {
+      console.log("Viaje cancelado por el conductor:", data);
       setSearchingDriver(false);
       setIsRideRequested(false);
       setActiveRide(null);
-      Alert.alert('Viaje Cancelado', `El conductor ha cancelado el viaje. Motivo: ${data.reason || 'Desconocido'}`);
+      Alert.alert(
+        "Viaje Cancelado",
+        `El conductor ha cancelado el viaje. Motivo: ${
+          data.reason || "Desconocido"
+        }`
+      );
       setIsRequestingRidePanelVisible(true);
       setRideEstimate(null);
       setRoutePolyline([]);
@@ -249,7 +285,9 @@ const PassengerHomeScreen = () => {
     });
 
     socket.on("ride_status_updated", (data) => {
-      console.log(`Estado del viaje ${data.rideId} actualizado a: ${data.status}`);
+      console.log(
+        `Estado del viaje ${data.rideId} actualizado a: ${data.status}`
+      );
       if (activeRide && data.rideId === activeRide._id) {
         if (data.status === "finalizado" || data.status === "cancelado") {
           setActiveRide(null);
@@ -270,32 +308,112 @@ const PassengerHomeScreen = () => {
     });
 
     return () => {
-      socket.off('connect');
-      socket.off('disconnect');
-      socket.off('connect_error');
-      socket.off('driverLocationUpdateForPassengers');
-      socket.off('driverUnavailable');
-      socket.off('rideRequestAccepted');
-      socket.off('noDriverFound');
-      socket.off('rideRequestCancelledByDriver');
-      socket.off('ride_status_updated');
-      socket.emit('leave_room', user.id);
+      socket.off("connect");
+      socket.off("disconnect");
+      socket.off("connect_error");
+      socket.off("driverLocationUpdateForPassengers");
+      socket.off("driverUnavailable");
+      socket.off("rideRequestAccepted");
+      socket.off("noDriverFound");
+      socket.off("rideRequestCancelledByDriver");
+      socket.off("ride_status_updated");
+      socket.emit("leave_room", user.id);
       console.log(`[Socket] Pasajero ${user.id} dejó su sala.`);
     };
   }, [socket, isAuthenticated, user?.id, activeRide, navigation]);
 
+  // --- Lógica para obtener estimación de viaje y ruta (backend) ---
+  // Esta función asume que tu backend maneja la lógica de Google Directions y devuelve la polilínea, tarifa, etc.
+  const getRideEstimate = async (origin, dest) => {
+    if (!origin || !dest) {
+      console.log("Faltan coordenadas de origen o destino para estimación.");
+      return;
+    }
+
+    try {
+      console.log("ORIGEN: ", origin)
+      console.log("DESTINATIN: ", dest)
+      console.log("TOKEN: ", user.token)
+
+      const response = await axios.post(
+        `${API_BASE_URL}/rides/estimate`,
+        {
+          origin: { latitude: origin.latitude, longitude: origin.longitude },
+          destination: { latitude: dest.latitude, longitude: dest.longitude },
+        },
+        {
+          headers: { Authorization: `Bearer ${user.token}` },
+        }
+      );
+
+      console.log("Estimación de Viaje recibida:", response.data);
+      // El backend debe devolver { fare, duration, distance, polyline }
+      setRideEstimate(response.data);
+
+      // --- CAMBIO CLAVE AQUÍ ---
+      // Solo decodificamos la polilínea si existe en la respuesta y no es nula.
+      if (response.data.polyline) {
+          const decoded = decodePolyline(response.data.polyline);
+          setRoutePolyline(decoded);
+          if (mapRef.current && decoded.length > 0) {
+              mapRef.current.fitToCoordinates(decoded, {
+                  edgePadding: { top: 50, right: 50, bottom: height * 0.35, left: 50 },
+                  animated: true,
+              });
+          }
+      } else {
+          // Si no hay polilínea, aseguramos que el estado esté vacío para no dibujar nada.
+          setRoutePolyline([]);
+          // También puedes ajustar la vista del mapa para que se centre en el destino o en la ubicación actual.
+          if (mapRef.current && dest) {
+            mapRef.current?.animateToRegion(
+              {
+                latitude: dest.latitude,
+                longitude: dest.longitude,
+                latitudeDelta: LATITUDE_DELTA,
+                longitudeDelta: LONGITUDE_DELTA,
+              },
+              1000
+            );
+          }
+      }
+      // --- FIN CAMBIO CLAVE ---
+
+    } catch (error) {
+      console.error(
+        "Error al obtener estimación de viaje desde backend:",
+        error.response?.data || error.message
+      );
+      Alert.alert(
+        "Error de Estimación",
+        "No se pudo obtener la estimación del viaje. Intenta de nuevo."
+      );
+      setRideEstimate(null);
+      setRoutePolyline([]);
+    }
+  };
 
   // --- Lógica de Geocodificación (búsqueda de destino) ---
   const searchDestination = useCallback(async () => {
+    console.log("Iniciando búsqueda de destino para:", destination.trim());
+
     if (!destination.trim()) {
-      Alert.alert('Error', 'Por favor, introduce un destino válido.');
+      Alert.alert("Error", "Por favor, introduce un destino válido.");
       setDestinationCoords(null);
       setRideEstimate(null);
       setRoutePolyline([]);
       return;
     }
+    // NOTA: Esta parte sigue necesitando Maps_API_KEY para la geocodificación de nombres a coordenadas.
+    // Si no tienes la API Key, esta funcionalidad de búsqueda por nombre NO funcionará.
     if (!Maps_API_KEY) {
-      Alert.alert("Error de Configuración", "La clave de Google Maps API no está disponible. No se puede buscar destino.");
+      console.error("Maps_API_KEY es nula o indefinida.");
+      Alert.alert(
+        "Error de Configuración",
+        "La clave de Google Maps API no está disponible. No se puede buscar destino por nombre. Puedes intentar seleccionar un punto en el mapa directamente."
+      );
+      // Aquí, podrías redirigir al usuario a que seleccione en el mapa o simplemente retornar.
+      setIsSearchingDestination(false); // Asegúrate de desactivar el indicador de carga.
       return;
     }
 
@@ -303,105 +421,105 @@ const PassengerHomeScreen = () => {
     Keyboard.dismiss();
 
     try {
-      const geocodeUrl = `https://maps.googleapis.com/maps/api/geocode/json?address=${encodeURIComponent(destination)}&key=${Maps_API_KEY}`;
+      const geocodeUrl = `https://maps.googleapis.com/maps/api/geocode/json?address=${encodeURIComponent(
+        destination
+      )}&key=${Maps_API_KEY}`;
+      console.log("URL de Geocodificación:", geocodeUrl);
       const response = await axios.get(geocodeUrl);
+      console.log("Respuesta de Google Geocoding API:", response.data);
 
       if (response.data.results && response.data.results.length > 0) {
         const { lat, lng } = response.data.results[0].geometry.location;
         const formattedAddress = response.data.results[0].formatted_address;
-        setDestinationCoords({ latitude: lat, longitude: lng });
-        setDestination(formattedAddress);
-        console.log('Destino encontrado:', { latitude: lat, longitude: lng });
+        const newDestinationCoords = { latitude: lat, longitude: lng };
 
-        await getRideEstimate(pickupLocation, { latitude: lat, longitude: lng });
+        setDestinationCoords(newDestinationCoords);
+        setDestination(formattedAddress);
+        console.log("Destino encontrado:", newDestinationCoords);
+
+        // --- LLAMADA CORRECTA A LA FUNCIÓN DE ESTIMACIÓN ---
+        if (pickupLocation) {
+          await getRideEstimate(pickupLocation, newDestinationCoords);
+        } else {
+          Alert.alert("Error", "No se pudo obtener tu ubicación actual para calcular la tarifa.");
+          setRideEstimate(null);
+          setRoutePolyline([]);
+        }
+        // --- FIN LLAMADA CORRECTA ---
 
       } else {
-        Alert.alert('Error', 'No se encontró el destino. Intenta ser más específico.');
+        Alert.alert(
+          "Error",
+          "No se encontró el destino. Intenta ser más específico."
+        );
         setDestinationCoords(null);
         setRideEstimate(null);
         setRoutePolyline([]);
       }
     } catch (error) {
-      console.error('Error al buscar destino:', error.response?.data || error.message);
-      Alert.alert('Error de Búsqueda', 'No se pudo buscar el destino. Verifica tu conexión o intenta de nuevo.');
+      console.error(
+        "Error al buscar destino:",
+        error.response?.data || error.message
+      );
+      Alert.alert(
+        "Error de Búsqueda",
+        "No se pudo buscar el destino. Verifica tu conexión o intenta de nuevo."
+      );
       setDestinationCoords(null);
       setRideEstimate(null);
       setRoutePolyline([]);
     } finally {
       setIsSearchingDestination(false);
     }
-  }, [destination, pickupLocation, Maps_API_KEY, user?.token]); // Añadido user.token a dependencias por la llamada axios
-
-  // --- Lógica para obtener estimación de viaje y ruta (backend) ---
-  const getRideEstimate = async (origin, dest) => {
-    if (!origin || !dest) return;
-
-    try {
-      const response = await axios.post(`${API_BASE_URL}/rides/estimate`, {
-        origin: { latitude: origin.latitude, longitude: origin.longitude },
-        destination: { latitude: dest.latitude, longitude: dest.longitude },
-      }, {
-        headers: { Authorization: `Bearer ${user.token}` },
-      });
-
-      console.log('Estimación de Viaje:', response.data);
-      setRideEstimate(response.data);
-      setRoutePolyline(decodePolyline(response.data.polyline));
-
-      if (mapRef.current && response.data.polyline) {
-        const coords = decodePolyline(response.data.polyline);
-        mapRef.current.fitToCoordinates(coords, {
-          edgePadding: { top: 50, right: 50, bottom: height * 0.35, left: 50 },
-          animated: true,
-        });
-      }
-
-    } catch (error) {
-      console.error('Error al obtener estimación de viaje:', error.response?.data || error.message);
-      Alert.alert('Error de Estimación', 'No se pudo obtener la estimación del viaje. Intenta de nuevo.');
-      setRideEstimate(null);
-      setRoutePolyline([]);
-    }
-  };
+  }, [destination, pickupLocation, Maps_API_KEY, user?.token]);
 
   // --- Lógica para enviar la solicitud de viaje (Socket.IO) ---
   const requestRide = async () => {
-    if (!destinationCoords || !pickupLocation || !user?.id) {
-      Alert.alert('Error', 'Por favor, selecciona un destino y asegúrate de tener una ubicación de recogida.');
+    if (!destinationCoords || !pickupLocation || !user?.id || !rideEstimate) {
+      Alert.alert(
+        "Error",
+        "Por favor, selecciona un destino y asegúrate de tener una ubicación de recogida y una estimación de viaje."
+      );
       return;
     }
 
     if (!socket.connected) {
-      Alert.alert('Error de Conexión', 'No estás conectado al servidor. Intenta de nuevo más tarde.');
+      Alert.alert(
+        "Error de Conexión",
+        "No estás conectado al servidor. Intenta de nuevo más tarde."
+      );
       return;
     }
 
     setSearchingDriver(true);
     setIsRequestingRidePanelVisible(false);
-
+    console.log("Haber que sucede aqui...")
     try {
-      console.log('Enviando solicitud de viaje...');
-      socket.emit('requestRide', {
+      console.log("Enviando solicitud de viaje...");
+      socket.emit("requestRide", {
         passengerId: user.id,
         pickupLocation: {
           latitude: pickupLocation.latitude,
           longitude: pickupLocation.longitude,
-          address: 'Ubicación actual del pasajero',
+          address: "Ubicación actual del pasajero", // O una dirección real si la geocodificas
         },
         destination: {
           latitude: destinationCoords.latitude,
           longitude: destinationCoords.longitude,
           address: destination,
         },
-        estimatedFare: rideEstimate?.fare,
-        estimatedDuration: rideEstimate?.duration,
-        estimatedDistance: rideEstimate?.distance,
+        estimatedFare: rideEstimate.fare,
+        estimatedDuration: rideEstimate.duration,
+        estimatedDistance: rideEstimate.distance,
+        // No enviar polyline al backend, ya que la estamos simulando y no es relevante para la solicitud de viaje
       });
       setIsRideRequested(true);
-
     } catch (error) {
-      console.error('Error al enviar solicitud de viaje:', error.message);
-      Alert.alert('Error', 'No se pudo enviar la solicitud de viaje. Intenta de nuevo.');
+      console.error("Error al enviar solicitud de viaje:", error.message);
+      Alert.alert(
+        "Error",
+        "No se pudo enviar la solicitud de viaje. Intenta de nuevo."
+      );
       setSearchingDriver(false);
       setIsRideRequested(false);
       setIsRequestingRidePanelVisible(true);
@@ -410,26 +528,29 @@ const PassengerHomeScreen = () => {
 
   const cancelRideRequest = () => {
     if (isRideRequested && rideId && socket.connected) {
-      console.log('Cancelando solicitud de viaje...');
-      socket.emit('cancelRideRequest', { rideId, passengerId: user.id });
+      console.log("Cancelando solicitud de viaje...");
+      socket.emit("cancelRideRequest", { rideId, passengerId: user.id });
     }
     setIsRideRequested(false);
     setSearchingDriver(false);
     setIsRequestingRidePanelVisible(false);
-    setDestination('');
+    setDestination("");
     setDestinationCoords(null);
     setRideEstimate(null);
     setRoutePolyline([]);
     setRideId(null);
     setActiveRide(null);
-    console.log('Solicitud de viaje cancelada localmente.');
+    console.log("Solicitud de viaje cancelada localmente.");
   };
 
   const handleLogout = async () => {
     Alert.alert(
       "Cerrar Sesión",
       "¿Estás seguro de que quieres cerrar tu sesión?",
-      [{ text: "Cancelar", style: "cancel" }, { text: "Sí", onPress: () => logout() }]
+      [
+        { text: "Cancelar", style: "cancel" },
+        { text: "Sí", onPress: () => logout() },
+      ]
     );
   };
 
@@ -438,16 +559,20 @@ const PassengerHomeScreen = () => {
     // y no hay un viaje activo en curso (buscando, aceptado, en_curso)
     if (isRequestingRidePanelVisible && !activeRide) {
       const { latitude, longitude } = e.nativeEvent.coordinate;
-      setDestinationCoords({ latitude, longitude });
+      const newDestinationCoords = { latitude, longitude };
+      setDestinationCoords(newDestinationCoords);
       // Aquí podrías hacer una geocodificación inversa para obtener la dirección real
-      setDestination(`Lat: ${latitude.toFixed(4)}, Lng: ${longitude.toFixed(4)}`);
-      // Alert.alert( // Comentado para no mostrar muchos alerts en desarrollo
-      //   "Destino Seleccionado",
-      //   `Has seleccionado un destino en ${latitude.toFixed(4)}, ${longitude.toFixed(4)}.`
-      // );
+      setDestination(
+        `Lat: ${latitude.toFixed(4)}, Lng: ${longitude.toFixed(4)}`
+      );
+
+      if (pickupLocation) {
+        getRideEstimate(pickupLocation, newDestinationCoords);
+      } else {
+        Alert.alert("Error", "No se pudo obtener tu ubicación actual para calcular la tarifa.");
+      }
     }
   };
-
 
   // --- Renderizado Condicional del Mapa ---
   if (loadingLocation) {
@@ -455,7 +580,9 @@ const PassengerHomeScreen = () => {
       <View style={styles.centeredContainer}>
         <ActivityIndicator size="large" color="#00f0ff" />
         <Text style={styles.loadingText}>Cargando tu ubicación...</Text>
-        {locationErrorMsg && <Text style={styles.errorText}>{locationErrorMsg}</Text>}
+        {locationErrorMsg && (
+          <Text style={styles.errorText}>{ locationErrorMsg }</Text>
+        )}
       </View>
     );
   }
@@ -530,6 +657,7 @@ const PassengerHomeScreen = () => {
             return null;
           })}
 
+          {/* Renderiza Polyline SÓLO si routePolyline tiene puntos */}
           {routePolyline.length > 0 && (
             <Polyline
               coordinates={routePolyline}
@@ -542,20 +670,28 @@ const PassengerHomeScreen = () => {
 
       <View style={styles.controlPanel}>
         <Text style={styles.title}>¡Pide tu Viaje!</Text>
-        <Text style={styles.infoText}>Hola, {user?.name || 'Pasajero'}!</Text>
+        <Text style={styles.infoText}>Hola, { user?.name || "Pasajero" }!</Text>
 
-        {activeRide && (activeRide.status === 'buscando' || activeRide.status === 'aceptado' || activeRide.status === 'en_curso') ? (
+        {activeRide &&
+        (activeRide.status === "buscando" ||
+          activeRide.status === "aceptado" ||
+          activeRide.status === "en_curso") ? (
           <View style={styles.statusBox}>
-            <Text style={styles.statusText}>
-              Estado del viaje: {activeRide.status?.toUpperCase()}
-            </Text>
+            <Text style={styles.statusText}>Estado del viaje: { activeRide.status?.toUpperCase() }</Text>
             {activeRide.status === "buscando" && (
               <>
                 <Text style={styles.subStatusText}>Buscando un conductor...</Text>
-                <ActivityIndicator size="small" color="#00f0ff" style={{marginTop: 10}} />
+                <ActivityIndicator
+                  size="small"
+                  color="#00f0ff"
+                  style={{ marginTop: 10 }}
+                />
                 <TouchableOpacity
-                  style={[styles.actionButton, { backgroundColor: '#ff4d4d', marginTop: 10 }]}
-                  onPress={cancelRideRequest} // Permite cancelar la búsqueda activa
+                  style={[
+                    styles.actionButton,
+                    { backgroundColor: "#ff4d4d", marginTop: 10 },
+                  ]}
+                  onPress={cancelRideRequest}
                 >
                   <Text style={styles.logoutButtonText}>Cancelar Búsqueda</Text>
                 </TouchableOpacity>
@@ -570,7 +706,10 @@ const PassengerHomeScreen = () => {
             <Button
               title="Ver Detalles del Viaje"
               onPress={() => {
-                if (activeRide.status === "buscando" || activeRide.status === "aceptado") {
+                if (
+                  activeRide.status === "buscando" ||
+                  activeRide.status === "aceptado"
+                ) {
                   navigation.navigate("WaitingForDriverScreen", {
                     rideId: activeRide._id,
                   });
@@ -585,21 +724,23 @@ const PassengerHomeScreen = () => {
           </View>
         ) : (
           <>
-            {!isRequestingRidePanelVisible && !isRideRequested && !searchingDriver && (
-              <TouchableOpacity
-                onPress={() => setIsRequestingRidePanelVisible(true)}
-                style={styles.requestButton}
-              >
-                <LinearGradient
-                  colors={["#00f0ff", "#0cf574"]}
-                  start={[0, 0]}
-                  end={[1, 1]}
-                  style={styles.gradientButton}
+            {!isRequestingRidePanelVisible &&
+              !isRideRequested &&
+              !searchingDriver && (
+                <TouchableOpacity
+                  onPress={() => setIsRequestingRidePanelVisible(true)}
+                  style={styles.requestButton}
                 >
-                  <Text style={styles.buttonText}>¿A dónde vamos?</Text>
-                </LinearGradient>
-              </TouchableOpacity>
-            )}
+                  <LinearGradient
+                    colors={["#00f0ff", "#0cf574"]}
+                    start={[0, 0]}
+                    end={[1, 1]}
+                    style={styles.gradientButton}
+                  >
+                    <Text style={styles.buttonText}>¿A dónde vamos?</Text>
+                  </LinearGradient>
+                </TouchableOpacity>
+              )}
 
             {isRequestingRidePanelVisible && (
               <View style={styles.requestPanel}>
@@ -613,20 +754,23 @@ const PassengerHomeScreen = () => {
                   autoCapitalize="words"
                 />
                 {isSearchingDestination && (
-                  <ActivityIndicator size="small" color="#00f0ff" style={styles.searchIndicator} />
+                  <ActivityIndicator
+                    size="small"
+                    color="#00f0ff"
+                    style={styles.searchIndicator}
+                  />
                 )}
 
-                {rideEstimate && (
+                {rideEstimate && ( // Se muestra si hay una estimación
                   <View style={styles.estimateContainer}>
-                    <Text style={styles.estimateText}>
-                      Tarifa Estimada: ${rideEstimate.fare ? rideEstimate.fare.toFixed(2) : 'N/A'}
-                    </Text>
-                    <Text style={styles.estimateText}>
-                      Duración Estimada: {rideEstimate.duration ? Math.round(rideEstimate.duration / 60) : 'N/A'} min
-                    </Text>
+                    <Text style={styles.estimateText}>Destino: { destination }</Text>
+                    <Text style={styles.estimateText}>Tarifa Estimada: ${ rideEstimate.fare ? rideEstimate.fare.toFixed(2) : "N/A" }</Text>
+                    <Text style={styles.estimateText}>Duración Estimada: { rideEstimate.duration ? Math.round(rideEstimate.duration / 60) : "N/A" } min</Text>
+                    <Text style={styles.estimateText}>Distancia Estimada: { rideEstimate.distance ? rideEstimate.distance.toFixed(2) : "N/A" } km</Text>
                   </View>
                 )}
 
+                {/* El botón "Solicitar Viaje Ahora" se muestra si hay coordenadas de destino y una estimación */}
                 {destinationCoords && rideEstimate && (
                   <TouchableOpacity
                     style={styles.actionButton}
@@ -645,10 +789,10 @@ const PassengerHomeScreen = () => {
                 )}
 
                 <TouchableOpacity
-                  style={[styles.actionButton, { backgroundColor: '#ff4d4d' }]}
+                  style={[styles.actionButton, { backgroundColor: "#ff4d4d" }]}
                   onPress={() => {
                     setIsRequestingRidePanelVisible(false);
-                    setDestination('');
+                    setDestination("");
                     setDestinationCoords(null);
                     setRideEstimate(null);
                     setRoutePolyline([]);
@@ -664,10 +808,10 @@ const PassengerHomeScreen = () => {
                 <ActivityIndicator size="large" color="#00f0ff" />
                 <Text style={styles.searchingText}>Buscando conductor cerca...</Text>
                 <TouchableOpacity
-                  style={[styles.actionButton, { backgroundColor: '#ff4d4d' }]}
+                  style={[styles.actionButton, { backgroundColor: "#ff4d4d" }]}
                   onPress={cancelRideRequest}
                 >
-                  <Text style={styles.logoutButtonText}>Cancelar Solicitud</Text>
+                  <Text style={styles.logoutButtonText}> Cancelar Solicitud </Text>
                 </TouchableOpacity>
               </View>
             )}
@@ -704,39 +848,39 @@ const PassengerHomeScreen = () => {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#0a0f1c',
+    backgroundColor: "#0a0f1c",
   },
   centeredContainer: {
     flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    backgroundColor: '#0a0f1c',
+    justifyContent: "center",
+    alignItems: "center",
+    backgroundColor: "#0a0f1c",
   },
   loadingText: {
-    color: '#fff',
+    color: "#fff",
     marginTop: 10,
     fontSize: 16,
   },
   errorText: {
-    color: '#ff4d4d',
+    color: "#ff4d4d",
     marginTop: 10,
-    textAlign: 'center',
+    textAlign: "center",
   },
   map: {
     width: width,
     height: height,
   },
   controlPanel: {
-    position: 'absolute',
+    position: "absolute",
     bottom: 0,
-    width: '100%',
-    backgroundColor: '#1a1f2e',
+    width: "100%",
+    backgroundColor: "#1a1f2e",
     padding: 20,
     paddingBottom: 30,
     borderTopLeftRadius: 20,
     borderTopRightRadius: 20,
-    alignItems: 'center',
-    shadowColor: '#000',
+    alignItems: "center",
+    shadowColor: "#000",
     shadowOffset: { width: 0, height: -3 },
     shadowOpacity: 0.5,
     shadowRadius: 5,
@@ -744,133 +888,123 @@ const styles = StyleSheet.create({
   },
   title: {
     fontSize: 24,
-    fontWeight: 'bold',
-    color: '#00f0ff',
+    fontWeight: "bold",
+    color: "#00f0ff",
     marginBottom: 10,
   },
   infoText: {
     fontSize: 16,
-    color: '#fff',
+    color: "#fff",
     marginBottom: 15,
   },
   input: {
-    width: '90%',
-    backgroundColor: '#0a0f1c',
+    width: "90%",
+    backgroundColor: "#0a0f1c",
     borderRadius: 8,
     padding: 15,
     fontSize: 16,
-    color: '#fff',
+    color: "#fff",
     marginBottom: 10,
     borderWidth: 1,
-    borderColor: '#00f0ff',
+    borderColor: "#00f0ff",
   },
   requestPanel: {
-    width: '100%',
-    alignItems: 'center',
+    width: "100%",
+    alignItems: "center",
     paddingVertical: 10,
   },
   estimateContainer: {
-    backgroundColor: '#0a0f1c',
+    backgroundColor: "#0a0f1c",
     padding: 10,
     borderRadius: 8,
     marginVertical: 10,
-    width: '90%',
-    alignItems: 'center',
+    width: "90%",
+    alignItems: "center",
     borderWidth: 1,
-    borderColor: '#00f0ff',
+    borderColor: "#00f0ff",
   },
   estimateText: {
-    color: '#fff',
+    color: "#fff",
     fontSize: 16,
-    fontWeight: 'bold',
+    fontWeight: "bold",
     marginBottom: 5,
   },
   actionButton: {
-    width: '90%',
+    width: "90%",
     marginVertical: 5,
     borderRadius: 8,
-    overflow: 'hidden',
+    overflow: "hidden",
   },
   gradientButton: {
     padding: 15,
     borderRadius: 8,
-    alignItems: 'center',
+    alignItems: "center",
   },
   buttonText: {
-    color: '#0a0f1c',
-    fontWeight: 'bold',
+    color: "#0a0f1c",
+    fontWeight: "bold",
     fontSize: 18,
   },
+  searchIndicator: {
+    marginBottom: 10,
+  },
   searchingPanel: {
-    width: '100%',
-    alignItems: 'center',
+    width: "100%",
+    alignItems: "center",
     paddingVertical: 20,
   },
   searchingText: {
-    color: '#fff',
+    color: "#fff",
     fontSize: 18,
-    marginTop: 10,
+    marginTop: 15,
     marginBottom: 20,
-    fontWeight: 'bold',
-  },
-  logoutButton: {
-    flex: 1,
-    backgroundColor: '#ff4d4d',
-    padding: 15,
-    borderRadius: 12,
-    alignItems: 'center',
-    marginLeft: 10,
-  },
-  logoutButtonText: {
-    color: '#fff',
-    fontWeight: 'bold',
-    fontSize: 16,
-  },
-  searchIndicator: {
-    position: 'absolute',
-    right: 30,
-    top: 25,
   },
   statusBox: {
-    backgroundColor: "rgba(255, 255, 255, 0.95)",
+    backgroundColor: "#1a1f2e",
     padding: 15,
-    borderRadius: 15,
-    marginBottom: 20,
+    borderRadius: 10,
+    width: "90%",
     alignItems: "center",
-    width: "100%",
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.25,
-    shadowRadius: 3.84,
-    elevation: 5,
+    marginTop: 10,
+    borderWidth: 1,
+    borderColor: "#00f0ff",
   },
   statusText: {
+    color: "#00f0ff",
     fontSize: 18,
     fontWeight: "bold",
-    color: "#0a0f1c",
     marginBottom: 5,
   },
   subStatusText: {
-    fontSize: 14,
-    color: "#555",
+    color: "#fff",
+    fontSize: 16,
     marginBottom: 10,
   },
   bottomButtons: {
     flexDirection: "row",
-    justifyContent: "space-between",
+    justifyContent: "space-around",
     width: "100%",
-    marginTop: 10,
+    marginTop: 20,
   },
   chatButton: {
-    flex: 1,
-    backgroundColor: "#00f0ff",
-    padding: 15,
-    borderRadius: 12,
-    alignItems: "center",
-    marginRight: 10,
+    backgroundColor: "#6a0dad", // Un color diferente para el chat
+    paddingVertical: 12,
+    paddingHorizontal: 20,
+    borderRadius: 8,
   },
   chatButtonText: {
-    color: "#0a0f1c",
+    color: "#fff",
+    fontWeight: "bold",
+    fontSize: 16,
+  },
+  logoutButton: {
+    backgroundColor: "#ff4d4d",
+    paddingVertical: 12,
+    paddingHorizontal: 20,
+    borderRadius: 8,
+  },
+  logoutButtonText: {
+    color: "#fff",
     fontWeight: "bold",
     fontSize: 16,
   },

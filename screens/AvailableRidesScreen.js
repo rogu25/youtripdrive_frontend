@@ -117,6 +117,7 @@ const AvailableRidesScreen = ({ navigation }) => {
   };
 
   useEffect(() => {
+    console.log("esta funcion carga....!!!")
     fetchRides();
     // Opcional: Refrescar la lista de viajes cada cierto tiempo
     const interval = setInterval(fetchRides, 30000); // Cada 30 segundos
