@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useCallback } from "react";
+import React, { useEffect, useState, useCallback, useRef } from "react";
 import {
   View,
   Text,
@@ -6,6 +6,7 @@ import {
   ActivityIndicator,
   Alert,
   TouchableOpacity,
+  Platform, // Importar Platform para ajustes específicos de la plataforma
 } from "react-native";
 import axios from "axios";
 import { useAuth } from "../context/AuthContext";
@@ -14,30 +15,38 @@ import { API_BASE_URL } from "../utils/config";
 import LottieView from "lottie-react-native";
 
 const WaitingForDriverScreen = ({ route, navigation }) => {
-  const { rideId: initialRideId } = route.params; // Renombrar para evitar conflicto con estado local
+  // Renombrar para evitar conflicto con estado local y mantener la referencia del ID original
+  const { rideId: initialRideId } = route.params;
   const [ride, setRide] = useState(null);
   const [loading, setLoading] = useState(true);
   const { user, isAuthenticated } = useAuth();
   const { socket } = useSocket();
+  // Estado para el tiempo estimado de llegada del conductor (ETA)
+  const [driverEta, setDriverEta] = useState(null);
 
   // --- Logs de depuración al inicio del componente ---
   console.log("------------------------------------------");
   console.log("WaitingForDriverScreen - Inicio");
-  console.log("WaitingForDriverScreen - rideId recibido (initial):", initialRideId);
+  console.log(
+    "WaitingForDriverScreen - rideId recibido (initial):",
+    initialRideId
+  );
   console.log("WaitingForDriverScreen - Usuario autenticado:", isAuthenticated);
   console.log("WaitingForDriverScreen - user.id:", user?.id);
-  console.log("WaitingForDriverScreen - user.token:", user?.token ? "Presente" : "Ausente");
+  console.log(
+    "WaitingForDriverScreen - user.token:",
+    user?.token ? "Presente" : "Ausente"
+  );
   console.log("------------------------------------------");
 
-  // Usar un ref para el rideId actual para evitar problemas de cierre en los listeners de socket
-  // O, más simple, asegurar que las dependencias del useEffect son correctas.
-  // En este caso, al usar `setRide`, el estado `ride` siempre está actualizado en el siguiente render.
-  // Pero para los listeners, `ride` del closure puede estar desactualizado.
-  // La mejor práctica es usar `setRide(prevRide => ...)` o pasar el ID a los listeners.
-  // Optaremos por pasar el ID a los listeners y asegurarnos que las dependencias del useEffect son correctas.
+  // Ref para almacenar el rideId actual. Útil para callbacks asíncronos o eventos de socket
+  // que podrían ejecutarse después de que el componente se re-renderiza y las variables del closure cambian.
+  const currentRideIdRef = useRef(initialRideId);
+  useEffect(() => {
+    currentRideIdRef.current = initialRideId;
+  }, [initialRideId]);
 
   const fetchRideDetails = useCallback(async () => {
-    // Verificar si los datos esenciales están presentes antes de hacer la llamada
     if (!isAuthenticated || !user?.token || !initialRideId) {
       console.log(
         "fetchRideDetails: Faltan credenciales o initialRideId. Redirigiendo a PassengerHomeScreen."
@@ -52,15 +61,23 @@ const WaitingForDriverScreen = ({ route, navigation }) => {
     }
 
     try {
-      console.log(`fetchRideDetails: Intentando obtener detalles del viaje ${initialRideId} para el usuario ${user.id}...`);
-      const response = await axios.get(`${API_BASE_URL}/rides/${initialRideId}`, {
-        headers: { Authorization: `Bearer ${user.token}` },
-      });
+      console.log(
+        `fetchRideDetails: Intentando obtener detalles del viaje ${initialRideId} para el usuario ${user.id}...`
+      );
+      const response = await axios.get(
+        `${API_BASE_URL}/rides/${initialRideId}`,
+        {
+          headers: { Authorization: `Bearer ${user.token}` },
+        }
+      );
       const fetchedRide = response.data;
       setRide(fetchedRide); // Actualiza el estado `ride`
       setLoading(false);
 
-      console.log("fetchRideDetails: Detalles del viaje obtenidos exitosamente:", fetchedRide);
+      console.log(
+        "fetchRideDetails: Detalles del viaje obtenidos exitosamente:",
+        fetchedRide
+      );
       console.log("fetchRideDetails: Estado del viaje:", fetchedRide.status);
 
       // Usar los nombres de estado del backend: 'buscando', 'aceptado', 'recogido', 'finalizado', 'cancelado'
@@ -87,10 +104,13 @@ const WaitingForDriverScreen = ({ route, navigation }) => {
         console.log(
           "fetchRideDetails: Viaje ya aceptado o en curso. Navegando a PassengerRideInProgress."
         );
+        // Si ya está aceptado, recogido o en ruta, se navega a PassengerRideInProgress.
+        // Esto evita que el pasajero se quede en la pantalla de espera innecesariamente.
         Alert.alert(
           "¡Viaje Encontrado!",
-          "Tu viaje ya ha sido aceptado o está en curso."
+          "Tu viaje ya ha sido aceptado o está en curso. Redirigiendo al seguimiento."
         );
+        // Usamos `replace` para que el usuario no pueda volver fácilmente a esta pantalla
         navigation.replace("PassengerRideInProgress", {
           rideId: fetchedRide._id,
         });
@@ -100,12 +120,15 @@ const WaitingForDriverScreen = ({ route, navigation }) => {
       console.error(
         "ERROR fetchRideDetails:",
         error.response?.data?.message || error.message,
-        "Status:", error.response?.status,
-        "Data:", error.response?.data
+        "Status:",
+        error.response?.status,
+        "Data:",
+        error.response?.data
       );
       Alert.alert(
         "Error al cargar viaje",
-        error.response?.data?.message || "No se pudo cargar los detalles del viaje. Es posible que el viaje ya no exista o no estés autorizado."
+        error.response?.data?.message ||
+          "No se pudo cargar los detalles del viaje. Es posible que el viaje ya no exista o no estés autorizado."
       );
       setLoading(false);
       navigation.replace("PassengerHomeScreen"); // Siempre redirigir a un estado seguro en caso de error
@@ -122,17 +145,19 @@ const WaitingForDriverScreen = ({ route, navigation }) => {
           text: "Sí",
           onPress: async () => {
             try {
-              if (!user?.token || !initialRideId) { // Usar initialRideId aquí
+              // Usar initialRideId o ride._id. Si ride._id es null, initialRideId debería estar presente
+              const rideToCancelId = ride?._id || initialRideId;
+              if (!user?.token || !rideToCancelId) {
                 Alert.alert(
                   "Error",
                   "No estás autenticado o no hay ID de viaje para cancelar."
                 );
                 return;
               }
-              console.log(`Intentando cancelar viaje ${initialRideId}...`);
+              console.log(`Intentando cancelar viaje ${rideToCancelId}...`);
               const response = await axios.put(
-                `${API_BASE_URL}/rides/${initialRideId}/status`, // Corregido el endpoint
-                { newStatus: "cancelado" }, // Cambiado `status` a `newStatus` para coincidir con backend
+                `${API_BASE_URL}/rides/${rideToCancelId}/status`,
+                { newStatus: "cancelado" },
                 {
                   headers: { Authorization: `Bearer ${user.token}` },
                 }
@@ -143,13 +168,16 @@ const WaitingForDriverScreen = ({ route, navigation }) => {
                 "Tu viaje ha sido cancelado exitosamente."
               );
 
-              // Emitir el evento de cancelación al conductor si hay uno asignado
-              if (ride?.driver?._id && socket) { // Usar el estado `ride` actual
-                console.log(`Emitiendo ride_cancelled_by_passenger a driverId: ${ride.driver._id}`);
+              // Emitir el evento de cancelación al conductor si hay uno asignado y el socket está conectado
+              // Usamos currentRideIdRef.current para asegurar que el ID es el más reciente en el cierre
+              if (socket && socket.connected && ride?.driver?._id) {
+                console.log(
+                  `Emitiendo ride_cancelled_by_passenger a driverId: ${ride.driver._id} para rideId: ${rideToCancelId}`
+                );
                 socket.emit("ride_cancelled_by_passenger", {
-                  rideId: ride._id.toString(),
+                  rideId: rideToCancelId.toString(), // Asegúrate de que sea string
                   driverId: ride.driver._id.toString(),
-                  passengerId: user.id, // Añadir passengerId para verificación en el backend si es necesario
+                  passengerId: user.id,
                 });
               }
               navigation.replace("PassengerHomeScreen");
@@ -157,8 +185,10 @@ const WaitingForDriverScreen = ({ route, navigation }) => {
               console.error(
                 "ERROR cancelling ride:",
                 error.response?.data?.message || error.message,
-                "Status:", error.response?.status,
-                "Data:", error.response?.data
+                "Status:",
+                error.response?.status,
+                "Data:",
+                error.response?.data
               );
               Alert.alert(
                 "Error al cancelar",
@@ -170,17 +200,19 @@ const WaitingForDriverScreen = ({ route, navigation }) => {
         },
       ]
     );
-  }, [user, initialRideId, navigation, ride, socket]); // Dependencias de useCallback
+  }, [user, initialRideId, navigation, ride, socket]);
 
+  // --- Efecto para cargar los detalles iniciales del viaje ---
   useEffect(() => {
     fetchRideDetails();
   }, [fetchRideDetails]);
 
   // --- Manejo de Sockets ---
+  // Este useEffect se encarga de escuchar los eventos del socket y actualizar la UI
   useEffect(() => {
-    // Captura los IDs actuales del usuario y del viaje de las dependencias del useEffect
     const currentUserId = user?.id;
-    const currentRideId = initialRideId;
+    // Usamos el ref para asegurar que tenemos la ID de viaje más reciente en el closure del listener
+    const currentRideId = currentRideIdRef.current;
 
     if (!socket || !isAuthenticated || !currentUserId || !currentRideId) {
       console.log(
@@ -196,88 +228,142 @@ const WaitingForDriverScreen = ({ route, navigation }) => {
     // ✅ EVENTO: El conductor ha aceptado el viaje
     const handleRideAccepted = (data) => {
       console.log("Socket: ride_accepted recibido", data);
-      // Asegurarse de que el evento es para el viaje y el pasajero correctos
-      // El backend emite `passengerId` ahora, no `passenger`
       if (data.rideId === currentRideId && data.passengerId === currentUserId) {
-        console.log("Socket: ride_accepted PROCESADO para el viaje y pasajero correctos.");
+        console.log(
+          "Socket: ride_accepted PROCESADO para el viaje y pasajero correctos."
+        );
         Alert.alert(
           "¡Viaje Aceptado!",
           `Tu viaje ha sido aceptado por ${data.driverName || "un conductor"}.`
         );
         // Actualizar el estado local `ride` con los datos del conductor y el estado 'aceptado'
-        setRide(prevRide => ({ 
-            ...prevRide, 
-            status: data.status, // Debería ser 'aceptado'
-            driver: { // Asegúrate de que esta estructura coincida con tu modelo de usuario populado
-                _id: data.driverId,
-                name: data.driverName,
-                // Agrega más campos si los necesitas y si el backend los envía (vehicle, etc.)
-            }
+        setRide((prevRide) => ({
+          ...prevRide,
+          status: data.status,
+          driver: {
+            _id: data.driverId,
+            name: data.driverName,
+            vehicle: data.vehicle, // Asegúrate que el backend envía 'vehicle' aquí
+            // Puedes añadir más campos del conductor si el backend los envía (e.g., phone, rating)
+          },
+          pickupEta: data.pickupEta, // Asumiendo que el backend envía el ETA aquí
         }));
+        setDriverEta(data.pickupEta); // Actualizar el estado del ETA
         // Navegar a la pantalla de progreso después de un breve delay para que el usuario lea el Alert
+        // Asegúrate de que los datos del conductor se pasen si son necesarios en la siguiente pantalla
         setTimeout(() => {
-            navigation.replace("PassengerRideInProgress", { rideId: data.rideId });
-        }, 1000); // Pequeño delay de 1 segundo
+          navigation.replace("PassengerRideInProgress", {
+            rideId: data.rideId,
+            driverData: data.driver, // Pasar datos del conductor si son necesarios
+          });
+        }, 1000);
       } else {
-        console.log("Socket: ride_accepted ignorado (no coincide rideId o passengerId)");
-        console.log("  - Evento: ", data);
-        console.log("  - Esperado: rideId=", currentRideId, " passengerId=", currentUserId);
+        console.log(
+          "Socket: ride_accepted ignorado (no coincide rideId o passengerId)"
+        );
+        console.log("  - Evento: ", data);
+        console.log(
+          "  - Esperado: rideId=",
+          currentRideId,
+          " passengerId=",
+          currentUserId
+        );
       }
     };
 
     // ✅ EVENTO: Actualización general del estado del viaje
     const handleRideStatusUpdated = (data) => {
       console.log("Socket: ride_status_updated recibido", data);
-      // Backend está emitiendo `newStatus`, no `status` para el nuevo estado
-      if (data.rideId === currentRideId && data.passengerId === currentUserId) { // Añadir passengerId si el backend lo envía
-        console.log("Socket: ride_status_updated PROCESADO para el viaje y pasajero correctos.");
-        setRide((prevRide) => ({ ...prevRide, status: data.newStatus })); // Usa data.newStatus
+      if (data.rideId === currentRideId && data.passengerId === currentUserId) {
+        console.log(
+          "Socket: ride_status_updated PROCESADO para el viaje y pasajero correctos."
+        );
+        setRide((prevRide) => ({ ...prevRide, status: data.newStatus }));
         console.log(`Estado del viaje actualizado a: ${data.newStatus}`);
 
         // Manejar las transiciones de estado
         if (data.newStatus === "cancelado") {
           Alert.alert(
             "Viaje Cancelado",
-            "Tu solicitud de viaje ha sido cancelada."
+            "Tu solicitud de viaje ha sido cancelada por el sistema o por el conductor."
           );
           navigation.replace("PassengerHomeScreen");
         } else if (data.newStatus === "finalizado") {
           Alert.alert("Viaje Completado", "Tu viaje ha finalizado.");
           navigation.replace("PassengerHomeScreen");
-        } else if (data.newStatus === "aceptado" || data.newStatus === "recogido" || data.newStatus === "en_ruta") { // Usar 'en_ruta'
-          // Si el estado cambia a aceptado o recogido, navegar a la pantalla de progreso
-          // Esto ya lo maneja `handleRideAccepted` para 'aceptado', pero es una buena redundancia.
-          // Si llega a 'recogido' o 'en_ruta' directamente, navega.
-          if (navigation.getCurrentRoute().name !== 'PassengerRideInProgress') { // Evitar navegación redundante
-            Alert.alert(
-              "¡Actualización del Viaje!",
-              `El estado de tu viaje es ahora: ${data.newStatus.replace("_", " ").toUpperCase()}.`
-            );
-            navigation.replace("PassengerRideInProgress", {
-              rideId: data.rideId,
-            });
-          }
+        } else if (
+          data.newStatus === "recogido" ||
+          data.newStatus === "en_ruta"
+        ) {
+          // Si el estado cambia a recogido o en_ruta, navegar a la pantalla de progreso.
+          // La navegación a "aceptado" ya la maneja `handleRideAccepted` para el primer aviso.
+          // Si por alguna razón el pasajero no recibió `ride_accepted` y salta directamente a estos estados,
+          // esta lógica también lo captura.
+          Alert.alert(
+            "¡Actualización del Viaje!",
+            `El estado de tu viaje es ahora: ${data.newStatus
+              .replace("_", " ")
+              .toUpperCase()}. Redirigiendo...`
+          );
+          navigation.replace("PassengerRideInProgress", {
+            rideId: data.rideId,
+          });
         }
       } else {
-        console.log("Socket: ride_status_updated ignorado (no coincide rideId o passengerId)");
-        console.log("  - Evento: ", data);
-        console.log("  - Esperado: rideId=", currentRideId, " passengerId=", currentUserId);
+        console.log(
+          "Socket: ride_status_updated ignorado (no coincide rideId o passengerId)"
+        );
+        console.log("  - Evento: ", data);
+        console.log(
+          "  - Esperado: rideId=",
+          currentRideId,
+          " passengerId=",
+          currentUserId
+        );
       }
     };
 
     // ✅ EVENTO: Un conductor ha rechazado la solicitud (si manejas esto específicamente)
     const handleRideRejected = (data) => {
       console.log("Socket: ride_rejected recibido", data);
-      if (data.rideId === currentRideId && data.passengerId === currentUserId) { // Asegúrate que tu backend emite 'passengerId'
+      if (data.rideId === currentRideId && data.passengerId === currentUserId) {
         Alert.alert(
           "Viaje Rechazado",
-          "Un conductor ha rechazado tu solicitud. Buscando otro..."
+          "Un conductor ha rechazado tu solicitud. Se buscará otro conductor automáticamente."
         );
-        // Aquí podrías querer mantener al pasajero en esta pantalla o intentar re-enviar la solicitud.
+        // Aquí podrías querer mantener al pasajero en esta pantalla o reintentar la búsqueda.
+        // Si el backend reasigna automáticamente, simplemente el pasajero espera.
+        // Si el backend envía `noDriverFound` o `rideRequestCancelledBySystem` después de varios rechazos,
+        // esos eventos manejarían la salida de esta pantalla.
       } else {
-        console.log("Socket: ride_rejected ignorado (no coincide rideId o passengerId)");
-        console.log("  - Evento: ", data);
-        console.log("  - Esperado: rideId=", currentRideId, " passengerId=", currentUserId);
+        console.log(
+          "Socket: ride_rejected ignorado (no coincide rideId o passengerId)"
+        );
+        console.log("  - Evento: ", data);
+        console.log(
+          "  - Esperado: rideId=",
+          currentRideId,
+          " passengerId=",
+          currentUserId
+        );
+      }
+    };
+
+    // ✅ NUEVO EVENTO: Actualización de la ubicación o ETA del conductor asignado
+    const handleDriverLocationUpdateForAssignedRide = (data) => {
+      // SOLO procesamos actualizaciones de ubicación si hay un viaje ACEPTADO
+      // y si el driverId de la actualización coincide con el driverId del viaje actual
+      if (
+        ride?.status === "aceptado" &&
+        ride?.driver?._id === data.driverId &&
+        data.rideId === currentRideId
+      ) {
+        console.log(
+          `Socket: driverLocationUpdateForAssignedRide recibido para driver ${data.driverId} con ETA: ${data.eta}`
+        );
+        setDriverEta(data.eta); // Asumiendo que `eta` viene en segundos
+        // Si quisieras actualizar también la posición del conductor en esta pantalla, podrías hacerlo aquí
+        // Pero para esta pantalla de "espera", el ETA es lo más relevante.
       }
     };
 
@@ -285,15 +371,52 @@ const WaitingForDriverScreen = ({ route, navigation }) => {
     socket.on("ride_accepted", handleRideAccepted);
     socket.on("ride_status_updated", handleRideStatusUpdated);
     socket.on("ride_rejected", handleRideRejected);
+    // Nuevo listener para actualizaciones del conductor asignado
+    socket.on(
+      "driverLocationUpdateForAssignedRide",
+      handleDriverLocationUpdateForAssignedRide
+    );
 
     // --- Función de limpieza ---
     return () => {
-      console.log("Socket useEffect: Limpiando listeners para WaitingForDriverScreen.");
+      console.log(
+        "Socket useEffect: Limpiando listeners para WaitingForDriverScreen."
+      );
       socket.off("ride_accepted", handleRideAccepted);
       socket.off("ride_status_updated", handleRideStatusUpdated);
       socket.off("ride_rejected", handleRideRejected);
+      socket.off(
+        "driverLocationUpdateForAssignedRide",
+        handleDriverLocationUpdateForAssignedRide
+      );
     };
-  }, [socket, initialRideId, user, isAuthenticated, navigation]); // Dependencias: Si alguna cambia, el efecto se re-ejecuta
+  }, [socket, user, isAuthenticated, navigation, ride, currentRideIdRef]); // Añadido `ride` a las dependencias para que el listener pueda acceder al `ride.driver` más reciente
+
+  // Este `useEffect` es para asegurar que si el `ride` cambia a un estado final o intermedio,
+  // la pantalla navegue automáticamente. Es una redundancia útil con la lógica dentro de los listeners
+  // y `fetchRideDetails`, para capturar cualquier cambio de estado que no haya sido un evento de socket directo.
+  useEffect(() => {
+    if (!loading && ride) {
+      if (ride.status === "finalizado" || ride.status === "cancelado") {
+        Alert.alert(
+          "Información del Viaje",
+          `El viaje ya está ${
+            ride.status === "finalizado" ? "completado" : "cancelado"
+          }.`
+        );
+        navigation.replace("PassengerHomeScreen");
+      } else if (ride.status === "recogido" || ride.status === "en_ruta") {
+        // Navegar si el conductor ya recogió al pasajero o está en ruta hacia el destino
+        Alert.alert(
+          "¡Actualización!",
+          `Tu viaje está ahora en estado: ${ride.status
+            .replace("_", " ")
+            .toUpperCase()}.`
+        );
+        navigation.replace("PassengerRideInProgress", { rideId: ride._id });
+      }
+    }
+  }, [ride, loading, navigation]);
 
   if (loading) {
     return (
@@ -304,17 +427,15 @@ const WaitingForDriverScreen = ({ route, navigation }) => {
     );
   }
 
-  // Si no hay viaje o el estado ya no es 'buscando' después de la carga inicial
-  // Esto previene mostrar la pantalla de espera si el viaje ya progresó o fue cancelado
-  // Nota: Si el estado es 'aceptado', queremos mostrar la información del conductor aquí.
+  // Si no hay viaje o el estado ya no es 'buscando' o 'aceptado'
+  // Nota: La lógica de `useEffect` de arriba ya maneja la navegación si el estado cambia.
+  // Esto es un fallback en caso de que el `ride` se vuelva nulo inesperadamente o tenga un estado incorrecto.
   if (!ride || (ride.status !== "buscando" && ride.status !== "aceptado")) {
     console.log(
       "WaitingForDriverScreen: Estado del viaje no apto para esta pantalla o viaje no encontrado. Redirigiendo a PassengerHomeScreen."
     );
-    // Las alertas específicas ya se manejan en fetchRideDetails.
-    // Aquí simplemente redirigimos de forma segura si el estado no es el esperado para esta pantalla.
     navigation.replace("PassengerHomeScreen");
-    return null; // No renderizar nada
+    return null;
   }
 
   return (
@@ -325,7 +446,11 @@ const WaitingForDriverScreen = ({ route, navigation }) => {
         loop
         style={styles.animation}
       />
-      <Text style={styles.title}>Esperando Conductor</Text>
+      <Text style={styles.title}>
+        {ride.status === "buscando"
+          ? "Buscando Conductor"
+          : "Conductor Asignado"}
+      </Text>
       <Text style={styles.statusText}>
         Estado: {ride.status?.toUpperCase().replace("_", " ")}
       </Text>
@@ -335,23 +460,37 @@ const WaitingForDriverScreen = ({ route, navigation }) => {
           tardar unos segundos. Por favor, mantén esta pantalla abierta.
         </Text>
       )}
-      {ride.status === "aceptado" && ride.driver && (
+      {ride.status === "aceptado" && ride.driver ? ( // Asegúrate de que `ride.driver` existe
         <View style={styles.driverAcceptedContainer}>
           <Text style={styles.messageText}>¡Tu viaje ha sido aceptado!</Text>
           <Text style={styles.driverInfoText}>
-            Conductor: {ride.driver.name}
+            Conductor:
+            { ride.driver.name }
           </Text>
-          {/* Asegúrate de que `ride.driver.vehicle` esté poblado si esperas mostrar esto */}
           {ride.driver.vehicle && (
             <Text style={styles.driverInfoText}>
-              Vehículo: {ride.driver.vehicle.brand} {ride.driver.vehicle.model}{" "}
-              ({ride.driver.vehicle.color})
+              Vehículo:
+              <Text style={{ fontWeight: "bold" }}>
+                { ride.driver.vehicle.model }
+              </Text>
+              (
+              <Text style={{ fontWeight: "bold" }}>
+                {ride.driver.vehicle.color}
+              </Text>
+              )
             </Text>
           )}
+          {driverEta !== null && driverEta !== undefined && (
+            <Text style={styles.etaText}>
+              Llega en: {Math.ceil(driverEta / 60)} min
+            </Text>
+          )}
+         
           <TouchableOpacity
             onPress={() =>
               navigation.replace("PassengerRideInProgress", {
                 rideId: ride._id,
+                driverData: ride.driver, // Pasar los datos del conductor a la siguiente pantalla
               })
             }
             style={styles.viewRideButton}
@@ -359,6 +498,19 @@ const WaitingForDriverScreen = ({ route, navigation }) => {
             <Text style={styles.viewRideButtonText}>Ver Viaje en Mapa</Text>
           </TouchableOpacity>
         </View>
+      ) : (
+        // En caso de que el viaje esté "aceptado" pero por alguna razón `ride.driver` no se ha cargado aún
+        ride.status === "aceptado" && (
+          <View style={styles.driverAcceptedContainer}>
+            <Text style={styles.messageText}>¡Tu viaje ha sido aceptado!</Text>
+            <ActivityIndicator
+              size="small"
+              color="#00f0ff"
+              style={{ marginTop: 10 }}
+            />
+            <Text style={styles.driverInfoText}> Cargando detalles del conductor... </Text>
+          </View>
+        )
       )}
       <TouchableOpacity onPress={handleCancelRide} style={styles.cancelButton}>
         <Text style={styles.cancelButtonText}>Cancelar Viaje</Text>
@@ -439,6 +591,13 @@ const styles = StyleSheet.create({
     color: "#fff",
     textAlign: "center",
     marginBottom: 5,
+  },
+  etaText: {
+    fontSize: 18,
+    color: "#fff",
+    textAlign: "center",
+    marginBottom: 10,
+    marginTop: 5,
   },
   viewRideButton: {
     marginTop: 15,

@@ -1,7 +1,7 @@
 import React, { useEffect, useState, useRef } from "react";
 import {
   View,
-  Text,
+  Text, // Asegúrate de que Text esté importado
   TextInput,
   Button,
   FlatList,
@@ -12,12 +12,11 @@ import {
 } from "react-native";
 import io from "socket.io-client";
 import axios from "axios";
-// import AsyncStorage from "@react-native-async-storage/async-storage"; // No es necesario aquí si usas AuthContext
 import { useRoute } from "@react-navigation/native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useAuth } from "../context/AuthContext";
 
-const API_URL = "http://192.168.0.254:4000";
+const API_URL = "http://192.168.0.254:4000"; // Tu URL de API
 
 const RideChat = () => {
   const route = useRoute();
@@ -67,7 +66,7 @@ const RideChat = () => {
         console.error("RideChat: Error al obtener mensajes:", err.response?.status, err.response?.data?.message || err.message);
         // Si el error es 404, indica que la URL no se encontró en el backend
         if (err.response?.status === 404) {
-            console.error("RideChat: Posible URL de API incorrecta o rideId no encontrado en el backend.");
+          console.error("RideChat: Posible URL de API incorrecta o rideId no encontrado en el backend.");
         }
       }
     };
@@ -76,9 +75,8 @@ const RideChat = () => {
     // Asegúrate de que `fetchMessages` se llame solo cuando los datos estén listos.
     // La primera vez que el componente se monta, `user` podría ser `null` brevemente.
     if (isAuthenticated && user?.token && rideId) {
-        fetchMessages();
+      fetchMessages();
     }
-
 
     socketRef.current.on("user_typing", ({ senderId }) => {
       if (senderId !== userId) { // ✅ Asegúrate que userId es el ID del usuario logueado, no solo el que se pasó por params
@@ -89,9 +87,9 @@ const RideChat = () => {
 
     // Limpia el listener cuando el componente se desmonta o rideId cambia (si la sala es por rideId)
     return () => {
-        if (socketRef.current) {
-            socketRef.current.off("user_typing");
-        }
+      if (socketRef.current) {
+        socketRef.current.off("user_typing");
+      }
     };
   }, [rideId, user, isAuthenticated]); // ✅ Dependencias actualizadas para useEffect
 
@@ -100,7 +98,7 @@ const RideChat = () => {
 
     const msg = {
       rideId,
-      senderId: user.id, // ✅ Usar user._id del AuthContext para senderId
+      senderId: user.id, // ✅ Usar user._id del AuthContext
       content: input.trim(),
     };
 
@@ -126,8 +124,9 @@ const RideChat = () => {
                   item.sender._id === user?.id ? styles.myMsg : styles.otherMsg // ✅ Comparar con user?._id del AuthContext
                 }
               >
+                {/* ¡¡¡CORRECCIÓN AQUÍ: ELIMINADA LA 'z' SUELTA!!! */}
                 <Text style={styles.sender}>
-                  {item.sender?.name || "Anon"}: {/* ✅ Seguridad con ?.name */}
+                  {item.sender?.name || "Anon"}: 
                 </Text>
                 <Text>{item.content}</Text>
               </View>
@@ -144,10 +143,10 @@ const RideChat = () => {
               onChangeText={(text) => {
                 setInput(text);
                 if (socketRef.current && user?.id) { // ✅ Asegúrate que socket y user._id existen
-                    socketRef.current.emit("typing", {
-                      rideId,
-                      senderId: user.id, // ✅ Usar user._id del AuthContext
-                    });
+                  socketRef.current.emit("typing", {
+                    rideId,
+                    senderId: user.id, // ✅ Usar user._id del AuthContext
+                  });
                 }
               }}
               placeholder="Escribe un mensaje..."
@@ -160,8 +159,6 @@ const RideChat = () => {
     </SafeAreaView>
   );
 };
-
-// ... (Styles are good)
 
 const styles = StyleSheet.create({
   safe: {

@@ -22,7 +22,6 @@ import AvailableRidesScreen from "./screens/AvailableRidesScreen";
 import RideInProgressDriverScreen from "./screens/RideInProgressDriverScreen";
 import RideChatScreen from "./screens/RideChatScreen";
 
-
 const Stack = createNativeStackNavigator();
 
 SplashScreen.preventAutoHideAsync();
@@ -31,13 +30,9 @@ const AppNavigator = () => {
   // Directly consume the state from AuthContext
   const { user, isAuthenticated, loading } = useAuth(); // Removed checkAuthStatus from destructuring as it's not needed here
 
-  // --- REMOVE THIS ENTIRE useEffect BLOCK ---
-  // useEffect(() => {
-  //   if (!isAuthenticated && !user && !loading) {
-  //     checkAuthStatus();
-  //   }
-  // }, [isAuthenticated, user, loading, checkAuthStatus]);
-  // ------------------------------------------
+  // Ya revisamos el AuthContext y el useEffect en checkAuthStatus se ejecuta una vez.
+  // Este useEffect estaba causando una posible re-ejecución innecesaria.
+  // Se ha quitado el bloque de useEffect que estaba comentado anteriormente.
 
   if (loading) {
     return (
@@ -54,16 +49,31 @@ const AppNavigator = () => {
         user?.role === "conductor" ? (
           <React.Fragment>
             <Stack.Screen name="DriverHome" component={DriverHomeScreen} />
-            <Stack.Screen name="AvailableRidesScreen" component={AvailableRidesScreen} />
-            <Stack.Screen name="RideInProgressDriverScreen" component={RideInProgressDriverScreen} />
+            <Stack.Screen
+              name="AvailableRidesScreen"
+              component={AvailableRidesScreen}
+            />
+            <Stack.Screen
+              name="RideInProgressDriverScreen"
+              component={RideInProgressDriverScreen}
+            />
             <Stack.Screen name="RideListScreen" component={RideListScreen} />
             <Stack.Screen name="RideChat" component={RideChatScreen} />
           </React.Fragment>
         ) : (
           <React.Fragment>
-            <Stack.Screen name="PassengerHome" component={PassengerHomeScreen} />
-            <Stack.Screen name="WaitingForDriverScreen" component={WaitingForDriverScreen} />
-            <Stack.Screen name="PassengerRideInProgress" component={PassengerRideInProgress} />
+            <Stack.Screen
+              name="PassengerHome"
+              component={PassengerHomeScreen}
+            />
+            <Stack.Screen
+              name="WaitingForDriverScreen"
+              component={WaitingForDriverScreen}
+            />
+            <Stack.Screen
+              name="PassengerRideInProgress"
+              component={PassengerRideInProgress}
+            />
             <Stack.Screen name="RideChat" component={RideChatScreen} />
             <Stack.Screen name="Rides" component={RideListScreen} />
           </React.Fragment>
@@ -80,28 +90,34 @@ const AppNavigator = () => {
 
 export default function App() {
   const [initialLoadingComplete, setInitialLoadingComplete] = useState(false);
+  const [appIsReady, setAppIsReady] = useState(false); // Nuevo estado para controlar la disponibilidad de la app
 
   useEffect(() => {
     async function prepare() {
       try {
-        await new Promise((resolve) => setTimeout(resolve, 2000));
+        // Carga inicial de fuentes, assets, etc.
+        // Aquí no debe haber texto visible directamente antes de que `SplashScreen.hideAsync()` se ejecute.
+        await new Promise((resolve) => setTimeout(resolve, 2000)); // Simula un tiempo de carga
       } catch (e) {
         console.warn(e);
       } finally {
-        setInitialLoadingComplete(true);
-        SplashScreen.hideAsync();
+        setAppIsReady(true); // Marca que los preparativos iniciales han terminado
+        await SplashScreen.hideAsync(); // Oculta el splash screen de Expo
       }
     }
     prepare();
   }, []);
 
-  if (!initialLoadingComplete) {
-    return (
-      <View style={styles.container}>
-        <StatusBar style="light" />
-        <SplashScreenAnimated />
-      </View>
-    );
+  // La forma más robusta de manejar el SplashScreen de Expo es no renderizar
+  // nada de tu aplicación hasta que `appIsReady` sea true y el `SplashScreen.hideAsync()`
+  // se haya llamado. De esta forma, evitas conflictos con el renderizado de tu app.
+  if (!appIsReady) {
+    // Si tienes un SplashScreenAnimated personalizado, este es el lugar para renderizarlo
+    // PERO, asegúrate de que SplashScreenAnimated NO contenga texto suelto
+    // sin envolver en <Text> si es un componente de React Native.
+    // Lo más seguro es que SplashScreenAnimated gestione su propio renderizado
+    // y solo muestre la animación, sin texto suelto.
+    return <SplashScreenAnimated />;
   }
 
   return (

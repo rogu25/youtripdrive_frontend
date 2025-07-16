@@ -6,9 +6,10 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 
 const DriverTrackingScreen = () => {
   useEffect(() => {
+    console.log("cargando el DriverTrakink");
     const startTracking = async () => {
       let { status } = await Location.requestForegroundPermissionsAsync();
-      if (status !== 'granted') {
+      if (status !== "granted") {
         Alert.alert("Permisos denegados", "No se puede obtener la ubicación.");
         return;
       }
@@ -27,8 +28,8 @@ const DriverTrackingScreen = () => {
             { latitude, longitude },
             {
               headers: {
-                Authorization: `Bearer ${data.token}`
-              }
+                Authorization: `Bearer ${data.token}`,
+              },
             }
           );
           console.log("Ubicación enviada:", latitude, longitude);
@@ -49,14 +50,16 @@ const DriverTrackingScreen = () => {
 
   return (
     <View style={styles.container}>
-      <Text style={styles.text}>🚗 Compartiendo ubicación en tiempo real...</Text>
+      <Text style={styles.text}>
+        Compartiendo ubicación en tiempo real...
+      </Text>
     </View>
   );
 };
 
 const styles = StyleSheet.create({
   container: { flex: 1, justifyContent: "center", alignItems: "center" },
-  text: { fontSize: 18, fontWeight: "bold" }
+  text: { fontSize: 18, fontWeight: "bold" },
 });
 
 export default DriverTrackingScreen;
