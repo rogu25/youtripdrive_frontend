@@ -29,18 +29,23 @@ const calculateBearing = (lat1, lon1, lat2, lon2) => {
 };
 
 const PassengerRideInProgress = ({ route, navigation }) => {
-  const { rideId } = route.params;
+  const { rideId, rideDetail, driverData, pickupEta } = route.params;
   const { user, isAuthenticated } = useAuth();
   const { socket } = useSocket();
   const mapRef = useRef(null);
 
-  const [rideDetails, setRideDetails] = useState(null);
+  const [driverLocation, setDriverLocation] = useState(
+    driverData?.currentLocation
+  );
+  const [driverBearing, setDriverBearing] = useState(0);
+  const [rideDetails, setRideDetails] = useState(rideDetail);
   const [loading, setLoading] = useState(true);
-  const [driverLocation, setDriverLocation] = useState(null);
+  const [driverRotation, setDriverRotation] = useState(0); // Nuevo estado para la rotación del conductor
   const [passengerOrigin, setPassengerOrigin] = useState(null);
 
   const fetchRideDetails = useCallback(async () => {
     if (!isAuthenticated || !user?.token || !rideId) {
+      console.log("No autenticado o sin ID de viaje, volviendo a Home.");
       Alert.alert(
         "Error",
         "No estás autenticado o no hay ID de viaje para seguimiento."
@@ -56,6 +61,7 @@ const PassengerRideInProgress = ({ route, navigation }) => {
       const rideData = response.data;
       setRideDetails(rideData);
 
+      // Establecer la ubicación de recogida del pasajero
       if (rideData.origin?.latitude && rideData.origin?.longitude) {
         setPassengerOrigin({
           latitude: rideData.origin.latitude,
@@ -63,7 +69,7 @@ const PassengerRideInProgress = ({ route, navigation }) => {
         });
       }
 
-      // Asegúrate de que driverLocation se establezca si está presente en los detalles iniciales
+      // Establecer la ubicación inicial del conductor si está disponible en los detalles del viaje
       if (
         rideData.driverLocation?.coordinates?.latitude &&
         rideData.driverLocation?.coordinates?.longitude
@@ -72,9 +78,12 @@ const PassengerRideInProgress = ({ route, navigation }) => {
           latitude: rideData.driverLocation.coordinates.latitude,
           longitude: rideData.driverLocation.coordinates.longitude,
         });
+        // Inicializar rotación con 0, se actualizará con el primer movimiento
+        setDriverRotation(0);
       }
 
-      if (mapRef.current && (rideData.origin || rideData.driverLocation)) {
+      // Ajustar la vista del mapa para que incluya origen y/o ubicación del conductor
+      if (mapRef.current) {
         const coordsToFit = [];
         if (rideData.origin?.latitude && rideData.origin?.longitude) {
           coordsToFit.push({
@@ -89,6 +98,12 @@ const PassengerRideInProgress = ({ route, navigation }) => {
           coordsToFit.push({
             latitude: rideData.driverLocation.coordinates.latitude,
             longitude: rideData.driverLocation.coordinates.longitude,
+          });
+        }
+        if (rideData.destination?.latitude && rideData.destination?.longitude) {
+          coordsToFit.push({
+            latitude: rideData.destination.latitude,
+            longitude: rideData.destination.longitude,
           });
         }
 
@@ -112,19 +127,20 @@ const PassengerRideInProgress = ({ route, navigation }) => {
     } finally {
       setLoading(false);
     }
-  }, [isAuthenticated, user, rideId, navigation]);
+  }, [isAuthenticated, user?.token, rideId, navigation]);
 
   useEffect(() => {
     fetchRideDetails();
   }, [fetchRideDetails]);
 
   // --- useEffect para manejar la navegación basada en el estado del viaje ---
-  // Este useEffect se ejecuta cuando rideDetails o loading cambian.
   useEffect(() => {
     if (!loading && rideDetails) {
-      // Los estados válidos para que el pasajero permanezca en esta pantalla son 'aceptado', 'recogido' o 'en_ruta'.
-      // Si el estado es 'buscando', 'finalizado' o 'cancelado', el pasajero debe salir de esta pantalla.
-      const validStatuses = ["aceptado", "recogido", "en_ruta"]; // ESTOS SON LOS ESTADOS QUE MANTIENEN AL PASAJERO EN LA PANTALLA
+      // Los estados válidos para que el pasajero permanezca en esta pantalla
+      // 'aceptado': conductor en camino a recoger
+      // 'recogido': conductor ha recogido al pasajero
+      // 'en_ruta': viaje en progreso hacia el destino final
+      const validStatuses = ["aceptado", "recogido", "en_ruta"];
 
       if (!validStatuses.includes(rideDetails.status)) {
         Alert.alert(
@@ -134,7 +150,7 @@ const PassengerRideInProgress = ({ route, navigation }) => {
         navigation.replace("PassengerHomeScreen");
       }
     }
-  }, [rideDetails, loading, navigation]); // Dependencias: rideDetails, loading, navigation.
+  }, [rideDetails, loading, navigation]);
 
   // Manejo de eventos de Socket.IO para ubicación del conductor y estado del viaje
   useEffect(() => {
@@ -145,37 +161,50 @@ const PassengerRideInProgress = ({ route, navigation }) => {
       return;
     }
 
-    socket.on("driver_location_update", (data) => {
+    // Únete a la sala de seguimiento de este viaje específico
+    // Asegúrate de que el backend emita a esta sala
+    socket.emit("join_ride_room", rideDetails._id);
+    console.log(
+      `[Socket] Pasajero ${user.id} se unió a la sala del viaje ${rideDetails._id}`
+    );
+
+    const handleDriverLocationUpdate = (data) => {
       // Solo actualiza si el update es para el conductor de este viaje
       if (rideDetails.driver?._id && data.driverId === rideDetails.driver._id) {
         setDriverLocation((prevLocation) => {
-          // Si tienes prevLocation, puedes usarlo para calcular el bearing
-          const newLocation = {
+          const newCurrentLocation = {
             latitude: data.coordinates.latitude,
             longitude: data.coordinates.longitude,
-            prevLatitude: prevLocation?.latitude, // Guarda la posición anterior para el cálculo del bearing
-            prevLongitude: prevLocation?.longitude,
           };
+
+          // Calcula la rotación
+          let newRotation = 0;
+          if (prevLocation) {
+            newRotation = calculateBearing(
+              prevLocation.latitude,
+              prevLocation.longitude,
+              newCurrentLocation.latitude,
+              newCurrentLocation.longitude
+            );
+          }
+          setDriverRotation(newRotation); // Actualiza la rotación
 
           // Anima la cámara para seguir al conductor si está en movimiento
           if (mapRef.current) {
             mapRef.current.animateCamera(
               {
-                center: {
-                  latitude: newLocation.latitude,
-                  longitude: newLocation.longitude,
-                },
-                zoom: 15,
+                center: newCurrentLocation,
+                zoom: 15, // Mantén un zoom constante para seguimiento
               },
               { duration: 1000 }
             );
           }
-          return newLocation;
+          return newCurrentLocation; // Solo retorna latitude y longitude
         });
       }
-    });
+    };
 
-    socket.on("ride_status_update", (data) => {
+    const handleRideStatusUpdate = (data) => {
       if (data.rideId === rideDetails._id) {
         console.log(
           `Estado del viaje ${data.rideId} actualizado a: ${data.status}`
@@ -196,19 +225,23 @@ const PassengerRideInProgress = ({ route, navigation }) => {
           );
           navigation.replace("PassengerHomeScreen");
         } else if (data.status === "recogido") {
-          // Mensaje específico para el estado 'recogido' si lo deseas
           Alert.alert(
             "¡Pasajero Recogido!",
             "El conductor te ha recogido. Tu viaje está a punto de empezar."
           );
-          // Puedes decidir si quieres un zoom diferente o alguna otra acción en el mapa aquí.
+          // Ajusta el mapa para mostrar la ruta completa del origen al destino
+          if (mapRef.current && rideDetails.origin && rideDetails.destination) {
+            mapRef.current.fitToCoordinates(
+              [rideDetails.origin, rideDetails.destination],
+              {
+                edgePadding: { top: 100, right: 50, bottom: 50, left: 50 },
+                animated: true,
+              }
+            );
+          }
         } else if (data.status === "en_ruta") {
-          // Mensaje específico para el estado 'en_ruta'
-          Alert.alert(
-            "Viaje en Curso",
-            "El conductor se dirige a tu destino."
-          );
-          // Puedes ajustar el mapa para mostrar la ruta completa del origen al destino aquí.
+          Alert.alert("Viaje en Curso", "El conductor se dirige a tu destino.");
+          // Vuelve a ajustar el mapa si el estado cambia a en_ruta para asegurar la vista de la ruta completa
           if (mapRef.current && rideDetails.origin && rideDetails.destination) {
             mapRef.current.fitToCoordinates(
               [rideDetails.origin, rideDetails.destination],
@@ -220,11 +253,18 @@ const PassengerRideInProgress = ({ route, navigation }) => {
           }
         }
       }
-    });
+    };
+
+    socket.on("driver_location_update", handleDriverLocationUpdate);
+    socket.on("ride_status_update", handleRideStatusUpdate);
 
     return () => {
-      socket.off("driver_location_update");
-      socket.off("ride_status_update");
+      socket.off("driver_location_update", handleDriverLocationUpdate);
+      socket.off("ride_status_update", handleRideStatusUpdate);
+      socket.emit("leave_ride_room", rideDetails._id);
+      console.log(
+        `[Socket] Pasajero ${user.id} dejó la sala del viaje ${rideDetails._id}`
+      );
     };
   }, [socket, isAuthenticated, user, rideDetails, navigation]); // Dependencias: rideDetails es clave
 
@@ -240,13 +280,17 @@ const PassengerRideInProgress = ({ route, navigation }) => {
     );
   }
 
+  // Define la región inicial del mapa con un valor por defecto seguro
+  // Esto solo es para la carga INICIAL si no hay ubicaciones disponibles aún.
+  // El fitToCoordinates en fetchRideDetails y en handleDriverLocationUpdate manejará la vista real.
   const initialMapRegion = {
-    latitude: driverLocation?.latitude || passengerOrigin?.latitude || 0,
-    longitude: driverLocation?.longitude || passengerOrigin?.longitude || 0,
+    latitude: driverLocation?.latitude || passengerOrigin?.latitude || -16.409, // Arequipa (centro)
+    longitude:
+      driverLocation?.longitude || passengerOrigin?.longitude || -71.535,
     latitudeDelta: 0.015,
     longitudeDelta: 0.015,
   };
-
+  
   return (
     <View style={styles.container}>
       <Text style={styles.headerText}>Viaje en Curso</Text>
@@ -259,9 +303,9 @@ const PassengerRideInProgress = ({ route, navigation }) => {
             Conductor: {rideDetails.driver.name}
           </Text>
           <Text style={styles.driverInfo}>
-            Vehículo: {rideDetails.driver.vehicle?.brand}{" "}
-            {rideDetails.driver.vehicle?.model} (
-            {rideDetails.driver.vehicle?.color})
+            Vehículo: {rideDetails.driver.carDetails.model}{" "}
+            {rideDetails.driver.carDetails.color}{" Placa: "} 
+            {rideDetails.driver.carDetails.licensePlate}
           </Text>
         </>
       )}
@@ -273,18 +317,20 @@ const PassengerRideInProgress = ({ route, navigation }) => {
       )}
       {rideDetails.status === "recogido" && (
         <Text style={styles.driverInfo}>
-          ¡El conductor te ha recogido! Viaje a punto de iniciar hacia tu destino.
+          ¡El conductor te ha recogido! Viaje a punto de iniciar hacia tu
+          destino.
         </Text>
       )}
       {rideDetails.status === "en_ruta" && (
         <Text style={styles.driverInfo}>Viaje en curso hacia tu destino.</Text>
       )}
 
+      {/* Renderiza el mapa solo si tenemos una ubicación inicial razonable */}
       {initialMapRegion.latitude !== 0 ? (
         <MapView
           ref={mapRef}
           style={styles.map}
-          initialRegion={initialMapRegion}
+          initialRegion={initialMapRegion} // Usará un valor por defecto seguro si es necesario.
           showsUserLocation={true}
         >
           {passengerOrigin && (
@@ -314,16 +360,7 @@ const PassengerRideInProgress = ({ route, navigation }) => {
                 style={{
                   width: 40,
                   height: 40,
-                  transform: [
-                    {
-                      rotate: `${calculateBearing(
-                        driverLocation.prevLatitude || driverLocation.latitude, // Usa prevLatitude si existe para el bearing
-                        driverLocation.prevLongitude || driverLocation.longitude,
-                        driverLocation.latitude,
-                        driverLocation.longitude
-                      )}deg`,
-                    },
-                  ],
+                  transform: [{ rotate: `${driverRotation}deg` }], // Usa el nuevo estado de rotación
                 }}
                 resizeMode="contain"
               />
@@ -342,19 +379,8 @@ const PassengerRideInProgress = ({ route, navigation }) => {
                 strokeWidth={4}
                 strokeColor="blue"
                 optimizeWaypoints={true}
-                onReady={(result) => {
-                  if (mapRef.current) {
-                    mapRef.current.fitToCoordinates(result.coordinates, {
-                      edgePadding: {
-                        top: 100,
-                        right: 50,
-                        bottom: 50,
-                        left: 50,
-                      },
-                      animated: true,
-                    });
-                  }
-                }}
+                // No necesitamos ajustar el mapa aquí, ya que el socket update o fetchRideDetails lo harán.
+                // onReady={(result) => { /* ... */ }}
                 onError={(error) =>
                   console.log("Error al trazar ruta del conductor:", error)
                 }
@@ -362,7 +388,8 @@ const PassengerRideInProgress = ({ route, navigation }) => {
             )}
 
           {/* Ruta del origen al destino del viaje (cuando el viaje está 'recogido' o 'en_ruta') */}
-          {(rideDetails.status === "recogido" || rideDetails.status === "en_ruta") && // <-- ¡¡¡CAMBIO AQUÍ!!!
+          {(rideDetails.status === "recogido" ||
+            rideDetails.status === "en_ruta") &&
             rideDetails.origin?.latitude &&
             rideDetails.destination?.latitude &&
             Maps_API_KEY && (
@@ -379,15 +406,6 @@ const PassengerRideInProgress = ({ route, navigation }) => {
                 strokeWidth={4}
                 strokeColor="#0cf574"
                 optimizeWaypoints={true}
-                onReady={(result) => {
-                  // Puedes ajustar el mapa para que muestre toda la ruta una vez que el viaje ha iniciado
-                  if (mapRef.current) {
-                    mapRef.current.fitToCoordinates(result.coordinates, {
-                      edgePadding: { top: 100, right: 50, bottom: 50, left: 50 },
-                      animated: true,
-                    });
-                  }
-                }}
                 onError={(error) =>
                   console.log("Error al trazar ruta del viaje:", error)
                 }
@@ -432,7 +450,7 @@ const PassengerRideInProgress = ({ route, navigation }) => {
                       onPress: async () => {
                         try {
                           await axios.post(
-                            `${API_BASE_URL}/api/rides/${rideId}/cancel`,
+                            `${API_BASE_URL}/rides/${rideId}/cancel`,
                             {},
                             {
                               headers: {

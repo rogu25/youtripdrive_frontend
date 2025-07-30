@@ -8,7 +8,7 @@
     "plugins": ["expo-font"],
 
     "extra": {
-      "googleMapsApiKey": "AIzaSyB0vm0QYbYcMmj7IDSUSH46vkVEWMJ-M90"
+      "googleMapsApiKey": "AIzaSyCrEChn4usj7yONgyM-E31frVi6y9QMLj0"
     },
 
     "ios": {
@@ -19,7 +19,7 @@
       },
       "bundleIdentifier": "com.rogu.youtripdriver",
       "config": {
-        "googleMapsApiKey": "AIzaSyB0vm0QYbYcMmj7IDSUSH46vkVEWMJ-M90"
+        "googleMapsApiKey": "AIzaSyCrEChn4usj7yONgyM-E31frVi6y9QMLj0"
       }
     },
     "android": {
@@ -35,7 +35,7 @@
       "package": "com.rogu.youtripdriver",
       "config": {
         "googleMaps": {
-          "apiKey": "AIzaSyB0vm0QYbYcMmj7IDSUSH46vkVEWMJ-M90"
+          "apiKey": "AIzaSyCrEChn4usj7yONgyM-E31frVi6y9QMLj0"
         }
       }
     },

@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef, useCallback } from "react";
 import {
   View,
   Text,
-  StyleSheet,
+  StyleSheet, // Asegúrate de que tus estilos estén importados o definidos aquí
   Button,
   Dimensions,
   Alert,
@@ -16,7 +16,7 @@ import MapView, { Marker, Polyline } from "react-native-maps";
 import * as Location from "expo-location";
 import { useAuth } from "../context/AuthContext";
 import { useSocket } from "../context/SocketContext";
-import { API_BASE_URL, Maps_API_KEY } from "../utils/config"; // Maps_API_KEY ya no se usa para rutas
+import { API_BASE_URL, Maps_API_KEY } from "../utils/config";
 import axios from "axios";
 import { useNavigation } from "@react-navigation/native";
 import Constants from "expo-constants";
@@ -42,11 +42,10 @@ const calculateBearing = (lat1, lon1, lat2, lon2) => {
 };
 
 // Función auxiliar para decodificar polilíneas
-// Se hace un pequeño ajuste para manejar 'null' o cadenas vacías.
 const decodePolyline = (encoded) => {
-  if (!encoded) { // Si es null o indefinido, o una cadena vacía
+  if (!encoded) {
     console.warn("Intentando decodificar una polilínea nula o vacía.");
-    return []; // Retorna un array vacío para evitar errores
+    return [];
   }
 
   let points = [];
@@ -105,11 +104,7 @@ const PassengerHomeScreen = () => {
   const [rideId, setRideId] = useState(null);
   const [activeRide, setActiveRide] = useState(null);
 
-  // NOTA: Este useEffect sobre Maps_API_KEY sigue siendo útil para
-  // las funcionalidades de búsqueda de destino (geocodificación)
-  // que sí usan la API de Google Maps.
   useEffect(() => {
-    // Validar si la clave API se cargó correctamente
     if (!Maps_API_KEY) {
       console.warn(
         "Advertencia: La clave de Google Maps API no se cargó. Verifica tu app.json y la reconstrucción de la app."
@@ -164,21 +159,25 @@ const PassengerHomeScreen = () => {
       return;
     }
 
-    socket.emit("join_room", user.id);
-    console.log(`[Socket] Pasajero ${user.id} se unió a su sala.`);
+    // Ya no necesitas emitir 'join_room' aquí al inicio si ya lo haces en SocketContext con 'join'
+    // socket.emit("join_room", user.id);
+    // console.log(`[Socket] Pasajero ${user.id} se unió a su sala.`);
 
-    socket.on("connect", () => {
-      console.log("✅ Socket.IO conectado para pasajero:", socket.id);
-      socket.emit("join_room", user.id);
-    });
+    // Estos listeners de 'connect', 'disconnect', 'connect_error'
+    // ya se manejan en SocketContext.js, no es necesario duplicarlos aquí
+    // a menos que quieras lógica específica adicional para este componente.
+    // socket.on("connect", () => {
+    //   console.log("✅ Socket.IO conectado para pasajero:", socket.id);
+    //   socket.emit("join_room", user.id); // Este join_room podría causar un problema si el backend espera 'join'
+    // });
 
-    socket.on("disconnect", () => {
-      console.log("❌ Socket.IO desconectado para pasajero");
-    });
+    // socket.on("disconnect", () => {
+    //   console.log("❌ Socket.IO desconectado para pasajero");
+    // });
 
-    socket.on("connect_error", (err) => {
-      console.error("❌ Error de conexión de Socket.IO:", err.message);
-    });
+    // socket.on("connect_error", (err) => {
+    //   console.error("❌ Error de conexión de Socket.IO:", err.message);
+    // });
 
     socket.on("driverLocationUpdateForPassengers", (data) => {
       setDrivers((prevDrivers) => {
@@ -229,26 +228,43 @@ const PassengerHomeScreen = () => {
       );
     });
 
-    socket.on("rideRequestAccepted", (data) => {
+    // === INICIO DE MODIFICACIÓN DEL LISTENER 'ride_accepted' ===
+    socket.on("ride_accepted", (data) => {
       console.log("¡Viaje aceptado!", data);
       setSearchingDriver(false);
       setIsRideRequested(false);
-      setActiveRide(data.ride);
+
+      const acceptedRide = data.ride; // Accede al objeto 'ride' completo que ahora viene en 'data.ride'
+      const driverDataFromBackend = acceptedRide.driver; // Accede al objeto 'driver' populado dentro del 'ride'
+      const pickupEta = data.pickupEta; // Accede al ETA que también viene en 'data'
+      console.log("la ETA: ", pickupEta)
+      // Actualiza el estado `activeRide` con el objeto de viaje completo
+      setActiveRide(acceptedRide);
+
       Alert.alert(
         "¡Viaje Aceptado!",
-        `El conductor ${data.driverData.name} ha aceptado tu viaje.`,
+        `El conductor ${
+          driverDataFromBackend.name
+        } ha aceptado tu viaje. Tiempo estimado de llegada: ${
+          driverDataFromBackend.pickupEta !== null
+            ? Math.round(driverDataFromBackend.pickupEta / 60) + " min"
+            : "Calculando..."
+        }.`,
         [
           {
             text: "OK",
             onPress: () =>
               navigation.navigate("PassengerRideInProgress", {
-                rideId: data.ride._id,
-                driverData: data.driverData,
+                rideId: acceptedRide._id,
+                rideDetail: acceptedRide, // <-- ¡Pasa el objeto de viaje completo!
+                driverData: driverDataFromBackend, // <-- ¡Pasa el objeto de conductor completo!
+                pickupEta: pickupEta,
               }),
           },
         ]
       );
     });
+    // === FIN DE MODIFICACIÓN DEL LISTENER 'ride_accepted' ===
 
     socket.on("noDriverFound", () => {
       console.log("No se encontraron conductores.");
@@ -308,22 +324,21 @@ const PassengerHomeScreen = () => {
     });
 
     return () => {
-      socket.off("connect");
-      socket.off("disconnect");
-      socket.off("connect_error");
+      // socket.off("connect"); // Estos ya no son necesarios aquí si se manejan en SocketContext
+      // socket.off("disconnect");
+      // socket.off("connect_error");
       socket.off("driverLocationUpdateForPassengers");
       socket.off("driverUnavailable");
-      socket.off("rideRequestAccepted");
+      socket.off("ride_accepted"); // Actualizado a 'ride_accepted'
       socket.off("noDriverFound");
       socket.off("rideRequestCancelledByDriver");
       socket.off("ride_status_updated");
-      socket.emit("leave_room", user.id);
-      console.log(`[Socket] Pasajero ${user.id} dejó su sala.`);
+      // socket.emit("leave_room", user.id); // Si ya se usa 'join' en SocketContext, esta debería ser 'leave'
+      console.log(`[Socket] Pasajero ${user.id} dejó su sala.`); // Este console.log está bien
     };
   }, [socket, isAuthenticated, user?.id, activeRide, navigation]);
 
   // --- Lógica para obtener estimación de viaje y ruta (backend) ---
-  // Esta función asume que tu backend maneja la lógica de Google Directions y devuelve la polilínea, tarifa, etc.
   const getRideEstimate = async (origin, dest) => {
     if (!origin || !dest) {
       console.log("Faltan coordenadas de origen o destino para estimación.");
@@ -331,9 +346,9 @@ const PassengerHomeScreen = () => {
     }
 
     try {
-      console.log("ORIGEN: ", origin)
-      console.log("DESTINATIN: ", dest)
-      console.log("TOKEN: ", user.token)
+      console.log("ORIGEN: ", origin);
+      console.log("DESTINATIN: ", dest);
+      console.log("TOKEN: ", user.token);
 
       const response = await axios.post(
         `${API_BASE_URL}/rides/estimate`,
@@ -347,38 +362,36 @@ const PassengerHomeScreen = () => {
       );
 
       console.log("Estimación de Viaje recibida:", response.data);
-      // El backend debe devolver { fare, duration, distance, polyline }
       setRideEstimate(response.data);
 
-      // --- CAMBIO CLAVE AQUÍ ---
-      // Solo decodificamos la polilínea si existe en la respuesta y no es nula.
       if (response.data.polyline) {
-          const decoded = decodePolyline(response.data.polyline);
-          setRoutePolyline(decoded);
-          if (mapRef.current && decoded.length > 0) {
-              mapRef.current.fitToCoordinates(decoded, {
-                  edgePadding: { top: 50, right: 50, bottom: height * 0.35, left: 50 },
-                  animated: true,
-              });
-          }
+        const decoded = decodePolyline(response.data.polyline);
+        setRoutePolyline(decoded);
+        if (mapRef.current && decoded.length > 0) {
+          mapRef.current.fitToCoordinates(decoded, {
+            edgePadding: {
+              top: 50,
+              right: 50,
+              bottom: height * 0.35,
+              left: 50,
+            },
+            animated: true,
+          });
+        }
       } else {
-          // Si no hay polilínea, aseguramos que el estado esté vacío para no dibujar nada.
-          setRoutePolyline([]);
-          // También puedes ajustar la vista del mapa para que se centre en el destino o en la ubicación actual.
-          if (mapRef.current && dest) {
-            mapRef.current?.animateToRegion(
-              {
-                latitude: dest.latitude,
-                longitude: dest.longitude,
-                latitudeDelta: LATITUDE_DELTA,
-                longitudeDelta: LONGITUDE_DELTA,
-              },
-              1000
-            );
-          }
+        setRoutePolyline([]);
+        if (mapRef.current && dest) {
+          mapRef.current?.animateToRegion(
+            {
+              latitude: dest.latitude,
+              longitude: dest.longitude,
+              latitudeDelta: LATITUDE_DELTA,
+              longitudeDelta: LONGITUDE_DELTA,
+            },
+            1000
+          );
+        }
       }
-      // --- FIN CAMBIO CLAVE ---
-
     } catch (error) {
       console.error(
         "Error al obtener estimación de viaje desde backend:",
@@ -404,16 +417,13 @@ const PassengerHomeScreen = () => {
       setRoutePolyline([]);
       return;
     }
-    // NOTA: Esta parte sigue necesitando Maps_API_KEY para la geocodificación de nombres a coordenadas.
-    // Si no tienes la API Key, esta funcionalidad de búsqueda por nombre NO funcionará.
     if (!Maps_API_KEY) {
       console.error("Maps_API_KEY es nula o indefinida.");
       Alert.alert(
         "Error de Configuración",
         "La clave de Google Maps API no está disponible. No se puede buscar destino por nombre. Puedes intentar seleccionar un punto en el mapa directamente."
       );
-      // Aquí, podrías redirigir al usuario a que seleccione en el mapa o simplemente retornar.
-      setIsSearchingDestination(false); // Asegúrate de desactivar el indicador de carga.
+      setIsSearchingDestination(false);
       return;
     }
 
@@ -437,16 +447,16 @@ const PassengerHomeScreen = () => {
         setDestination(formattedAddress);
         console.log("Destino encontrado:", newDestinationCoords);
 
-        // --- LLAMADA CORRECTA A LA FUNCIÓN DE ESTIMACIÓN ---
         if (pickupLocation) {
           await getRideEstimate(pickupLocation, newDestinationCoords);
         } else {
-          Alert.alert("Error", "No se pudo obtener tu ubicación actual para calcular la tarifa.");
+          Alert.alert(
+            "Error",
+            "No se pudo obtener tu ubicación actual para calcular la tarifa."
+          );
           setRideEstimate(null);
           setRoutePolyline([]);
         }
-        // --- FIN LLAMADA CORRECTA ---
-
       } else {
         Alert.alert(
           "Error",
@@ -493,7 +503,7 @@ const PassengerHomeScreen = () => {
 
     setSearchingDriver(true);
     setIsRequestingRidePanelVisible(false);
-    console.log("Haber que sucede aqui...")
+    console.log("Haber que sucede aqui...");
     try {
       console.log("Enviando solicitud de viaje...");
       socket.emit("requestRide", {
@@ -569,7 +579,10 @@ const PassengerHomeScreen = () => {
       if (pickupLocation) {
         getRideEstimate(pickupLocation, newDestinationCoords);
       } else {
-        Alert.alert("Error", "No se pudo obtener tu ubicación actual para calcular la tarifa.");
+        Alert.alert(
+          "Error",
+          "No se pudo obtener tu ubicación actual para calcular la tarifa."
+        );
       }
     }
   };
@@ -581,7 +594,7 @@ const PassengerHomeScreen = () => {
         <ActivityIndicator size="large" color="#00f0ff" />
         <Text style={styles.loadingText}>Cargando tu ubicación...</Text>
         {locationErrorMsg && (
-          <Text style={styles.errorText}>{ locationErrorMsg }</Text>
+          <Text style={styles.errorText}>{locationErrorMsg}</Text>
         )}
       </View>
     );
@@ -632,6 +645,11 @@ const PassengerHomeScreen = () => {
               typeof driver.coordinates.latitude === "number" &&
               typeof driver.coordinates.longitude === "number"
             ) {
+              // Si activeRide está definido y este conductor es el asignado al viaje activo
+              const isAssignedDriver =
+                activeRide &&
+                activeRide.driver &&
+                activeRide.driver._id === driver._id;
               return (
                 <Marker
                   key={driver._id}
@@ -640,7 +658,11 @@ const PassengerHomeScreen = () => {
                     longitude: driver.coordinates.longitude,
                   }}
                   title={driver.name || "Conductor"}
-                  description="Conductor disponible"
+                  description={
+                    isAssignedDriver
+                      ? "Tu Conductor Asignado"
+                      : "Conductor disponible"
+                  }
                 >
                   <Image
                     source={require("../assets/car-icon.png")}
@@ -648,6 +670,7 @@ const PassengerHomeScreen = () => {
                       width: 40,
                       height: 40,
                       transform: [{ rotate: `${driver.rotation || 0}deg` }],
+                      tintColor: isAssignedDriver ? "gold" : undefined, // Opcional: Cambia el color si es el conductor asignado
                     }}
                     resizeMode="contain"
                   />
@@ -670,17 +693,21 @@ const PassengerHomeScreen = () => {
 
       <View style={styles.controlPanel}>
         <Text style={styles.title}>¡Pide tu Viaje!</Text>
-        <Text style={styles.infoText}>Hola, { user?.name || "Pasajero" }!</Text>
+        <Text style={styles.infoText}>Hola, {user?.name || "Pasajero"}!</Text>
 
         {activeRide &&
         (activeRide.status === "buscando" ||
           activeRide.status === "aceptado" ||
           activeRide.status === "en_curso") ? (
           <View style={styles.statusBox}>
-            <Text style={styles.statusText}>Estado del viaje: { activeRide.status?.toUpperCase() }</Text>
+            <Text style={styles.statusText}>
+              Estado del viaje: {activeRide.status?.toUpperCase()}
+            </Text>
             {activeRide.status === "buscando" && (
               <>
-                <Text style={styles.subStatusText}>Buscando un conductor...</Text>
+                <Text style={styles.subStatusText}>
+                  Buscando un conductor...
+                </Text>
                 <ActivityIndicator
                   size="small"
                   color="#00f0ff"
@@ -697,8 +724,22 @@ const PassengerHomeScreen = () => {
                 </TouchableOpacity>
               </>
             )}
-            {activeRide.status === "aceptado" && (
-              <Text style={styles.subStatusText}>Conductor en camino.</Text>
+            {activeRide.status === "aceptado" && activeRide.driver ? (
+              <>
+                <Text style={styles.subStatusText}>
+                  Conductor {activeRide.driver.name} en camino.
+                </Text>
+                <Text style={styles.subStatusText}>
+                  Modelo: {activeRide.driver.carDetails?.model} - Placa:{" "}
+                  {activeRide.driver.carDetails?.licensePlate}
+                </Text>
+              </>
+            ) : (
+              activeRide.status === "aceptado" && (
+                <Text style={styles.subStatusText}>
+                  Conductor en camino (detalles cargando).
+                </Text>
+              )
             )}
             {activeRide.status === "en_curso" && (
               <Text style={styles.subStatusText}>Viaje en curso.</Text>
@@ -710,12 +751,15 @@ const PassengerHomeScreen = () => {
                   activeRide.status === "buscando" ||
                   activeRide.status === "aceptado"
                 ) {
+                  // Asegúrate de pasar driverData si activeRide.driver está populado
                   navigation.navigate("WaitingForDriverScreen", {
                     rideId: activeRide._id,
+                    driverData: activeRide.driver, // Pasa el objeto driver completo si lo tienes
                   });
                 } else if (activeRide.status === "en_curso") {
                   navigation.navigate("PassengerRideInProgress", {
                     rideId: activeRide._id,
+                    driverData: activeRide.driver, // Pasa el objeto driver completo si lo tienes
                   });
                 }
               }}
@@ -761,16 +805,32 @@ const PassengerHomeScreen = () => {
                   />
                 )}
 
-                {rideEstimate && ( // Se muestra si hay una estimación
+                {rideEstimate && (
                   <View style={styles.estimateContainer}>
-                    <Text style={styles.estimateText}>Destino: { destination }</Text>
-                    <Text style={styles.estimateText}>Tarifa Estimada: ${ rideEstimate.fare ? rideEstimate.fare.toFixed(2) : "N/A" }</Text>
-                    <Text style={styles.estimateText}>Duración Estimada: { rideEstimate.duration ? Math.round(rideEstimate.duration / 60) : "N/A" } min</Text>
-                    <Text style={styles.estimateText}>Distancia Estimada: { rideEstimate.distance ? rideEstimate.distance.toFixed(2) : "N/A" } km</Text>
+                    <Text style={styles.estimateText}>
+                      Destino: {destination}
+                    </Text>
+                    <Text style={styles.estimateText}>
+                      Tarifa Estimada: ${" "}
+                      {rideEstimate.fare ? rideEstimate.fare.toFixed(2) : "N/A"}
+                    </Text>
+                    <Text style={styles.estimateText}>
+                      Duración Estimada:{" "}
+                      {rideEstimate.duration
+                        ? Math.round(rideEstimate.duration / 60)
+                        : "N/A"}{" "}
+                      min
+                    </Text>
+                    <Text style={styles.estimateText}>
+                      Distancia Estimada:{" "}
+                      {rideEstimate.distance
+                        ? rideEstimate.distance.toFixed(2)
+                        : "N/A"}{" "}
+                      km
+                    </Text>
                   </View>
                 )}
 
-                {/* El botón "Solicitar Viaje Ahora" se muestra si hay coordenadas de destino y una estimación */}
                 {destinationCoords && rideEstimate && (
                   <TouchableOpacity
                     style={styles.actionButton}
@@ -783,7 +843,9 @@ const PassengerHomeScreen = () => {
                       end={[1, 1]}
                       style={styles.gradientButton}
                     >
-                      <Text style={styles.buttonText}>Solicitar Viaje Ahora</Text>
+                      <Text style={styles.buttonText}>
+                        Solicitar Viaje Ahora
+                      </Text>
                     </LinearGradient>
                   </TouchableOpacity>
                 )}
@@ -806,12 +868,17 @@ const PassengerHomeScreen = () => {
             {isRideRequested && searchingDriver && (
               <View style={styles.searchingPanel}>
                 <ActivityIndicator size="large" color="#00f0ff" />
-                <Text style={styles.searchingText}>Buscando conductor cerca...</Text>
+                <Text style={styles.searchingText}>
+                  Buscando conductor cerca...
+                </Text>
                 <TouchableOpacity
                   style={[styles.actionButton, { backgroundColor: "#ff4d4d" }]}
                   onPress={cancelRideRequest}
                 >
-                  <Text style={styles.logoutButtonText}> Cancelar Solicitud </Text>
+                  <Text style={styles.logoutButtonText}>
+                    {" "}
+                    Cancelar Solicitud{" "}
+                  </Text>
                 </TouchableOpacity>
               </View>
             )}
@@ -845,51 +912,54 @@ const PassengerHomeScreen = () => {
   );
 };
 
+// Aquí deben ir tus estilos
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#0a0f1c",
   },
   centeredContainer: {
     flex: 1,
     justifyContent: "center",
     alignItems: "center",
-    backgroundColor: "#0a0f1c",
+    backgroundColor: "#2c2c2c",
   },
   loadingText: {
-    color: "#fff",
     marginTop: 10,
+    color: "#fff",
     fontSize: 16,
   },
   errorText: {
-    color: "#ff4d4d",
     marginTop: 10,
+    color: "red",
+    fontSize: 14,
     textAlign: "center",
+    marginHorizontal: 20,
   },
   map: {
-    width: width,
-    height: height,
+    width: "100%",
+    height: "100%",
+    position: "absolute",
+    zIndex: -1,
   },
   controlPanel: {
     position: "absolute",
     bottom: 0,
     width: "100%",
-    backgroundColor: "#1a1f2e",
-    padding: 20,
-    paddingBottom: 30,
+    backgroundColor: "#3a3a3a",
     borderTopLeftRadius: 20,
     borderTopRightRadius: 20,
+    padding: 20,
     alignItems: "center",
     shadowColor: "#000",
     shadowOffset: { width: 0, height: -3 },
-    shadowOpacity: 0.5,
+    shadowOpacity: 0.3,
     shadowRadius: 5,
-    elevation: 10,
+    elevation: 20,
   },
   title: {
     fontSize: 24,
     fontWeight: "bold",
-    color: "#00f0ff",
+    color: "#fff",
     marginBottom: 10,
   },
   infoText: {
@@ -897,59 +967,70 @@ const styles = StyleSheet.create({
     color: "#fff",
     marginBottom: 15,
   },
-  input: {
+  requestButton: {
     width: "90%",
-    backgroundColor: "#0a0f1c",
-    borderRadius: 8,
-    padding: 15,
-    fontSize: 16,
+    borderRadius: 10,
+    overflow: "hidden", // Para que el gradiente no se desborde
+    marginBottom: 15,
+  },
+  gradientButton: {
+    paddingVertical: 15,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  buttonText: {
     color: "#fff",
-    marginBottom: 10,
-    borderWidth: 1,
-    borderColor: "#00f0ff",
+    fontSize: 18,
+    fontWeight: "bold",
   },
   requestPanel: {
     width: "100%",
+    paddingHorizontal: 10,
     alignItems: "center",
-    paddingVertical: 10,
+  },
+  input: {
+    width: "95%",
+    backgroundColor: "#fff",
+    borderRadius: 8,
+    padding: 15,
+    fontSize: 16,
+    marginBottom: 10,
+    color: "#333",
+  },
+  searchIndicator: {
+    marginTop: 5,
+    marginBottom: 10,
   },
   estimateContainer: {
-    backgroundColor: "#0a0f1c",
-    padding: 10,
-    borderRadius: 8,
-    marginVertical: 10,
-    width: "90%",
-    alignItems: "center",
-    borderWidth: 1,
+    backgroundColor: "#4c4c4c",
+    borderRadius: 10,
+    padding: 15,
+    width: "95%",
+    marginBottom: 15,
     borderColor: "#00f0ff",
+    borderWidth: 1,
   },
   estimateText: {
     color: "#fff",
-    fontSize: 16,
-    fontWeight: "bold",
+    fontSize: 15,
     marginBottom: 5,
   },
   actionButton: {
-    width: "90%",
-    marginVertical: 5,
-    borderRadius: 8,
+    width: "95%",
+    borderRadius: 10,
     overflow: "hidden",
-  },
-  gradientButton: {
-    padding: 15,
-    borderRadius: 8,
-    alignItems: "center",
-  },
-  buttonText: {
-    color: "#0a0f1c",
-    fontWeight: "bold",
-    fontSize: 18,
-  },
-  searchIndicator: {
     marginBottom: 10,
+  },
+  logoutButtonText: {
+    color: "#fff",
+    fontSize: 18,
+    fontWeight: "bold",
+    textAlign: "center",
+    paddingVertical: 15,
   },
   searchingPanel: {
     width: "100%",
+    paddingHorizontal: 20,
     alignItems: "center",
     paddingVertical: 20,
   },
@@ -960,25 +1041,27 @@ const styles = StyleSheet.create({
     marginBottom: 20,
   },
   statusBox: {
-    backgroundColor: "#1a1f2e",
-    padding: 15,
+    width: "95%",
+    backgroundColor: "#4c4c4c",
     borderRadius: 10,
-    width: "90%",
+    padding: 20,
     alignItems: "center",
     marginTop: 10,
-    borderWidth: 1,
+    marginBottom: 15,
     borderColor: "#00f0ff",
+    borderWidth: 1,
   },
   statusText: {
-    color: "#00f0ff",
-    fontSize: 18,
+    fontSize: 20,
     fontWeight: "bold",
-    marginBottom: 5,
+    color: "#00f0ff",
+    marginBottom: 10,
   },
   subStatusText: {
-    color: "#fff",
     fontSize: 16,
-    marginBottom: 10,
+    color: "#fff",
+    marginBottom: 5,
+    textAlign: "center",
   },
   bottomButtons: {
     flexDirection: "row",
@@ -987,26 +1070,27 @@ const styles = StyleSheet.create({
     marginTop: 20,
   },
   chatButton: {
-    backgroundColor: "#6a0dad", // Un color diferente para el chat
+    backgroundColor: "#0cf574",
     paddingVertical: 12,
     paddingHorizontal: 20,
     borderRadius: 8,
+    flex: 1,
+    marginRight: 10,
+    alignItems: "center",
   },
   chatButtonText: {
     color: "#fff",
-    fontWeight: "bold",
     fontSize: 16,
+    fontWeight: "bold",
   },
   logoutButton: {
     backgroundColor: "#ff4d4d",
     paddingVertical: 12,
     paddingHorizontal: 20,
     borderRadius: 8,
-  },
-  logoutButtonText: {
-    color: "#fff",
-    fontWeight: "bold",
-    fontSize: 16,
+    flex: 1,
+    marginLeft: 10,
+    alignItems: "center",
   },
 });
 
